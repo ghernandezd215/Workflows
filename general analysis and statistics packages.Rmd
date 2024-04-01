@@ -17,6 +17,7 @@ install.packages("tidytext")
 install.packages("scales") #ggplot 2 scales and legend grammar
 install.packages("flexdashboard") #make dashboards
 install.packages("shiny")
+install.packages("ipumsr") #access IPUMS data
 install.packages("mapsapi") #access google api
 install.packages('tidygeocoder') #convert addresses to coordinates and vice versa
 install.packages('ggforce') #built above ggplot 2
