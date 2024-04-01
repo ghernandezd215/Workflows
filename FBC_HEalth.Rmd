@@ -1,0 +1,70 @@
+---
+title: "FBC_Health"
+output: html_document
+date: "2023-10-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(tidyverse)
+library(sf)
+library(osmdata)
+library(tigris)
+
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+crs <- "EPSG:2248"
+
+
+# set bounding box - the maximum x-y extent you are interested in
+# Do some right-clicking in google maps to figure this out
+
+
+
+q0 <- opq(bbox = c(-77.007980,38.651735,-76.565094,39.082639)) 
+
+park <- add_osm_feature(opq = q0, key = 'leisure', value = "park") %>%
+  osmdata_sf(.)
+
+
+park.sf <- st_geometry(park$osm_polygons) %>%
+  st_transform(4326) %>%
+  st_sf() %>%
+  cbind(., park$osm_polygons$name) %>%
+  rename(NAME = park.osm_polygons.name)
+
+restaurant <- add_osm_feature(opq = q0, key = 'amenity', value = "restaurant") %>%
+  osmdata_sf(.)
+
+restaurant.sf <- st_geometry(restaurant$osm_points) %>%
+  st_transform(4326) %>%
+  st_sf() %>%
+  cbind(., restaurant$osm_points$name) %>%
+  cbind(., restaurant$osm_points$osm_id) %>%
+  cbind(., restaurant$osm_points$addr.street) %>%
+  cbind(., restaurant$osm_points$addr.postcode) %>%
+  cbind(., restaurant$osm_points$addr.city) %>%
+  cbind(., restaurant$osm_points$addr.state) %>%
+  cbind(., restaurant$osm_points$cuisine)
+
+# Remove "restaurant.osm_points." string from column names
+colnames(restaurant.sf) <- gsub("restaurant.osm_points.","",colnames(restaurant.sf))
+
+# Add the features for Philadelphia County
+# You can use this to clip things if it's necessary
+
+paCounties <- counties(state = 'PA', cb = FALSE)
+
+phila <- paCounties %>%
+  filter(NAME == "Philadelphia") %>%
+  st_as_sf() %>%
+  st_transform(4326)
+
+# Map it
+
+ggplot()+
+  geom_sf(data = phila, color = "black")+
+  scale_color_manual(values = c("orange", "blue"))+
+  geom_sf(data = park.sf, fill = "light green", color = "transparent")

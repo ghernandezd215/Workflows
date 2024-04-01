@@ -1,0 +1,291 @@
+---
+title: "Census Tract/Block Query per County"
+author: "Gabriel"
+date: "2024-02-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Load neccesary libraries 
+
+install.packages('tidyverse')
+install.packages('tidycensus')
+install.packages('sf')
+install.packages('kableExtra')
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(kableExtra)
+
+options(scipen=999)
+options(tigris_class = "sf")
+
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+
+#Load API KEY
+census_api_key("3aedcfd189958d66a813a29a4b33580e78657644", overwrite = TRUE)
+#Set CRS
+crs<-4326
+
+
+
+```
+
+USE LOAD VARIABLES TO EXPLORE DATA OF INTEREST
+```{r}
+acs_variable_list.2009 <- load_variables(2009, #year
+                                         "acs5", #five year ACS estimates
+                                         cache = TRUE)
+#USe filter to filter by some title in  the interphase
+#list of variables and the rename function
+#add the E to get the estimate, otherwise returns margin as well
+acs_vars <- c("B06003_013E", #Foreign Born - PLACE OF BIRTH BY SEX IN THE UNITED STATES
+              "B05002_013E", #Estimate!!Total!!Foreign born - PLACE OF BIRTH BY CITIZENSHIP STATUS
+              "B05007_039E", #Estimate!!Total!!Latin America!!Caribbean!!- Entered before 1980
+              "B25002_003E", #stimate!!Total!!Vacant OCCUPANCY STATUS
+              "B09016_002E", #Estimate!!Total!!In households - HOUSEHOLD TYPE (INCLUDING LIVING ALONE) BY RELATIONSHIP
+              "B19013_001E", #Estimate!!Median household income in the past 12 months (in 2009 inflation-adjusted dollars)
+              "B19037A_053E", #Estimate!!Total!!Householder 65 years and over
+              "B06012_002E", #Total!!Below 100 percent of the poverty level
+              "B25071_001E", #Median gross rent as a percentage of household income
+              "B25035_001E", #Median year structure built
+              "B19057_001E", #Total - PUBLIC ASSISTANCE INCOME IN THE PAST 12 MONTHS FOR HOUSEHOLDS
+              "B25001_001E", #Total HOUSING UNITS
+              "B05006_127E", #Total!!Americas!!Latin America!!Caribbean!!Cuba
+              "B25077_001E") #med values
+
+
+```
+
+Interesting Tables:
+ACS 2009 5-Year Estimates
+B06003_013 - Foreign Born - PLACE OF BIRTH BY SEX IN THE UNITED STATES
+B05002_013 - Estimate!!Total!!Foreign born - PLACE OF BIRTH BY CITIZENSHIP STATUS
+B05007_039 - Estimate!!Total!!Latin America!!Caribbean!!- Entered before 1980
+B25002_003 - Estimate!!Total!!Vacant OCCUPANCY STATUS
+B09016_002 - Estimate!!Total!!In households - HOUSEHOLD TYPE (INCLUDING LIVING ALONE) BY RELATIONSHIP
+B19013_001 - Estimate!!Median household income in the past 12 months (in 2009 inflation-adjusted dollars) MEDIAN HOUSEHOLD INCOME IN THE PAST 12 MONTHS (IN 2009 INFLATION-ADJUSTED DOLLARS)
+B19037A_053 - Estimate!!Total!!Householder 65 years and over
+B06012_002 - Estimate!!Total!!Below 100 percent of the poverty level
+B25071_001 - Estimate!!Median gross rent as a percentage of household income
+B25035_001 - Estimate!!Median year structure built
+B19057_001 - Estimate!!Total - PUBLIC ASSISTANCE INCOME IN THE PAST 12 MONTHS FOR HOUSEHOLDS
+B25001_001 - Estimate!!Total HOUSING UNITS
+B05006_127 - Estimate!!Total!!Americas!!Latin America!!Caribbean!!Cuba
+
+```{r}
+#The Census Query sample
+jackson_county_tracts.09 <- get_acs(geography = "tract",
+                             year = 2009, 
+                             variables = acs_vars, 
+                             geometry = TRUE, 
+                             state = "MS", 
+                             county = "Hinds", 
+                             output = "wide") 
+
+#Rename the variables
+
+jackson_county_tracts.09 <- jackson_county_tracts.09%>%
+  rename(fb_placebysex.2009 = B06003_013E,
+          totalfb_placebycitizenshipstatus.2009 = B05002_013E,
+          total_carib_1980.2009 = B05007_039E,
+          total_vacancy_O_status.2009 = B25002_003E,
+          total_householdtype_relationship.09 = B09016_002E,
+          med_hh_inc.09 = B19013_001E,
+          hh_65up.09 = B19037A_053E,
+          Total_b_100pov.09 = B06012_002E,
+          gross_v_income_percentage.09 = B25071_001E,
+          med_built_year.09 = B25035_001E,
+          tot_publicass_inc.09 = B19057_001E,
+          tot_housingunits.09 = B25001_001E,
+          cub_fb_total09 = B05006_127E,
+          med_houseval09 = B25077_001E
+          )%>%
+  mutate(vacancyPct.2009 = total_vacancy_O_status.2009/tot_housingunits.09) %>% # Get Vacanct Rate
+   st_as_sf(crs = crs)
+#setcrs
+```
+2022 ACS 5 year Estimates
+
+```{r}
+
+#Load Variables
+acs_variable_list.22 <- load_variables(2022, #year
+                                         "acs5", #five year ACS estimates
+                                         cache = TRUE)
+
+acs22_vars <-c("B06012PR_002E", #Tot Below 100 percent of the poverty level
+               "B25002_003E", #TotalVacant
+               "B21004_001E", #Median income in the past 12 months (in 2022 inflation-adjusted dollars
+               "B09021_023E", #65 years and over Lives alone
+               "B25136_001E", #Total Housing Units
+               "B25071_001E", #Median gross rent as a percentage of household income
+               "B05006_143E", #Total:!!Americas:!!Latin America:!!Caribbean:!!Cuba
+               "B19057_002E", #Total:!!With public assistance income
+               "B25035_001E", #Median year structure built
+               "B25077_001E" #med values
+       )
+#Going to get the same data for 15 years later
+jackson_county_tracts.22 <- get_acs(geography = "tract",
+                             year = 2022, 
+                             variables = acs22_vars, 
+                             geometry = TRUE, 
+                             state = "MS", 
+                             county = "Hinds", 
+                             output = "wide") 
+
+jackson_county_tracts.22 <- jackson_county_tracts.22%>%
+  rename(tot_below100pov22 = B06012PR_002E,
+         tot_vacant22 = B25002_003E,
+         med_inc22 = B21004_001E,
+         up65_alone22 = B09021_023E,
+         tot_housingunits22 =B25136_001E,
+         gross_v_inc_perc22 = B25071_001E,
+         tot_fb_cuba22 = B05006_143E,
+         tot_pa_inc22 = B19057_002E,
+         med_yb22 = B25035_001E,
+         med_values22 = B25077_001E)%>%
+  mutate(vacpct22 = (tot_vacant22/tot_housingunits22)) %>%
+  st_as_sf(crs = crs)
+```
+
+Interesting Variables:
+
+2022 5 Year Estimates
+
+B06012PR_002 - Estimate!!Total:!!Below 100 percent of the poverty level
+B25002_003 - Estimate!!Total:!!Vacant
+B21004_001 - Estimate!!Median income in the past 12 months (in 2022 inflation-adjusted dollars)--!!Total
+B09021_023 - Estimate!!Total:!!65 years and over:!!Lives alone
+B25136_001 - Estimate!!Total Housing Units:
+B25071_001 - Estimate!!Median gross rent as a percentage of household income
+B05006_143 - Estimate!!Total:!!Americas:!!Latin America:!!Caribbean:!!Cuba
+B19057_002 - Estimate!!Total:!!With public assistance income
+B25035_001 - Estimate!!Median year structure built
+
+```{r}
+#Join the two tables to get an entire dataset to work with
+allACS_df <- st_drop_geometry(jackson_county_tracts.22,jackson_county_tracts.09)%>%
+  left_join(jackson_county_tracts.09 , jackson_county_tracts.22,
+                    by= c("GEOID"))
+#create variables of changes
+
+allACS_df <- allACS_df %>%
+  mutate(change_vac_pct = vacpct22 - vacancyPct.2009,
+         change_med_inc = med_inc22 - med_hh_inc.09,
+         change_med_values = med_values22 - med_houseval09,
+         change_cuba_fb = tot_fb_cuba22 - cub_fb_total09,
+         change_pct_below100pov = tot_below100pov22 - Total_b_100pov.09)
+
+sf.allACS <- st_join(jackson_county_tracts.09, jackson_county_tracts.22, left= TRUE ) %>%
+    mutate(change_vac_pct = vacpct22 - vacancyPct.2009,
+         change_med_inc = med_inc22 - med_hh_inc.09,
+         change_med_values = med_values22 - med_houseval09,
+         change_cuba_fb = tot_fb_cuba22 - cub_fb_total09,
+         change_pct_below100pov = tot_below100pov22 - Total_b_100pov.09)
+```
+You can now create a list of census tracts within the chosen county and use it to creat a label that can the be used to group by and summarize how those areas compare to the rest of the city. 
+
+1. create vector of census tract geoids
+```{r}
+# Make plots of the data
+ggplot()+
+  geom_sf(data = sf.allACS, aes(fill = change_med_inc),
+          color = "transparent")
+ 
+
+```
+
+Bring in features to join to the census data. In this case, separate dataframes of stops for each train line in the form of points for each row and are stacked together using rbind. In the example below, a label is created to distinguish which set of points belonged to what line within the aggregated dataframe.
+
+```{r}
+#example using train stop points
+
+el <- st_read("https://opendata.arcgis.com/datasets/8c6e2575c8ad46eb887e6bb35825e1a6_0.geojson")
+Broad_St <- st_read("https://opendata.arcgis.com/datasets/2e9037fd5bef406488ffe5bb67d21312_0.geojson")
+
+septaStops <- 
+  rbind(
+     el %>% 
+      mutate(Line = "El") %>%
+      dplyr::select(Station, Line),
+     Broad_St %>%
+      mutate(Line ="Broad_St") %>%
+      dplyr::select(Station, Line)) %>%
+  st_transform(st_crs(tracts16))  #sets crs to match that of another sf object (tract 16's)
+
+#Clip operation
+
+clip <- 
+  st_intersection(buffer, tracts16) %>%
+  dplyr::select(TotalPop) %>%
+  mutate(Selection_Type = "Clip")
+
+# Spatial intersection with `st_intersects()` on polygons
+#     Do a spatial selection to see which tracts touch the buffer
+
+#     approach #1: sub-setting a spatial object with a spatial object using the '[' brackets.
+
+selection1 <- 
+  tracts16[buffer,] %>%
+  dplyr::select(TotalPop) %>%
+  mutate(Selection_Type = "Spatial Selection")
+
+#In this usage, the intersecting rows of `tracts16` are selected for by indexing on `buffer`. This method is very fast to compute, but hard to understand at first.
+
+#Another Approach
+
+# Finally, we are using centroids, or the point at the center of a polygon, to select whether a polygon from `tracts16` intersects the `buffer`.
+# first they create the buffered features and drop the geometry. it is a spatial operation. to get the data of variables they merge to the original data (tract 16query) based on GEOID of the clipped list of tracts
+
+selectCentroids <-
+  st_centroid(tracts16)[buffer,] %>%
+  st_drop_geometry() %>%
+  left_join(., dplyr::select(tracts16, GEOID), by = "GEOID") %>%
+  st_sf() %>%
+  dplyr::select(TotalPop) %>%
+  mutate(Selection_Type = "Select by Centroids")
+
+#1  convert tract polygons to centroids and to the spatial intersect to buffers using the `selection1` approach from above. The resulting geometry type is now a point and not a polygon
+
+#2  drop the geometry so that is becomes a regular non-spatial data frame
+
+#3  join the original `tracts16` data frame using the `GEOID` as the join field. Note that only the `GEOID` column is selected, however the polygon spatial features are also joined.
+
+#4  `st_sf()` is a function to turn it back to an {sf} spatial object
+
+#5  finally the `TotalPop` column is selected and a new field of `Selection_Type` is added
+
+#Note: you will get a warning about "st_centroid assumes attributes... don't worry about it.
+
+```
+
+CREATE SUMMARY TABLES
+
+```{r}
+# Example
+
+allTracts.Summary <- 
+  st_drop_geometry(allTracts.group) %>%
+  group_by(year, TOD) %>%
+  summarize(Rent = mean(MedRent, na.rm = T),
+            Population = mean(TotalPop, na.rm = T),
+            Percent_White = mean(pctWhite, na.rm = T),
+            Percent_Bach = mean(pctBachelors, na.rm = T),
+            Percent_Poverty = mean(pctPoverty, na.rm = T))
+
+kable(allTracts.Summary) %>%
+  kable_styling() %>%
+  footnote(general_title = "\n",
+           general = "Table 2.2")
+```
+
+
+
+```{r}
+```
