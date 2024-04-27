@@ -1,0 +1,237 @@
+---
+title: "FBC_Health"
+output: html_document
+date: "2023-10-29"
+editor_options: 
+  chunk_output_type: console
+knitr:
+  opts_chunk:
+    echo: TRUE
+    message: FALSE
+    warning: FALSE
+    
+---
+
+```{r setup, include=FALSE, cache =FALSE}
+options(repos = c(CRAN = "https://cran.rstudio.com/"))
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+install.packages("knitr")
+install.packages("tidyverse")
+install.packages("sf")
+install.packages("osmdata")
+install.packages("tigris")
+install.packages("magrittr")
+install.packages("ggplot2")
+library(ggplot2)
+library(tidyverse)
+library(sf)
+library(osmdata)
+library(tigris)
+library(magrittr)
+
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+crs <- "EPSG:2248"
+```
+# Forestville Baptist Church Point
+
+The following code is to create the point object that will be used on the map. 
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, collapse=TRUE, cache = TRUE}
+
+
+# Latitude and Longitude coordinates of Forestville Baptist Church
+lat <- 38.8375
+lon <- -76.8825
+
+# Create a data frame with the coordinates
+church_data <- data.frame(Latitude = lat, Longitude = lon)
+church_sf <- st_as_sf(church_data, coords = c("Longitude", "Latitude"), crs = "EPSG:4326")
+
+#convert
+church_sf <- st_transform(church_sf, crs = "EPSG:2248")
+
+
+# Print the resulting point object
+print(church_sf)
+```
+
+# Open Street Map
+
+This section of the code uses Open Street Maps'to query our points of interest : clinics, doctor offices, dentist offices, and hospitals. I then manipulate the output to create a spatial data frame with the point of each location. In this chunk I also got the counties of Maryland, specified Prince George's County as the base for the maps that follow.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, results='hide', cache = FALSE}
+
+# set bounding box - the maximum x-y extent you are interested in
+
+#Example of a call to use on the rest
+
+#park.sf <- st_geometry(park$osm_polygons) %>%
+  #st_transform(4326) %>%
+  #st_sf() %>%
+  #cbind(., parks$osm_polygons$name) %>%
+  #rename(NAME = park.osm_polygons.name)
+
+#Now, extract the geometry, convert to an sf, set the crs, add columns based on available data, rename columns SF or points in the CRS for shapefile after
+# example column name solution below
+
+# Remove "restaurant.osm_points." string from column names
+#colnames(restaurant.sf) <- gsub("restaurant.osm_points.","",colnames(restaurant.sf))
+
+# example of binding columns one by one
+#restaurant.sf <- st_geometry(restaurant$osm_points) %>%
+  #st_transform(4326) %>%
+ # st_sf() %>%
+ # cbind(., restaurant$osm_points$name) %>%
+ # cbind(., restaurant$osm_points$osm_id) %>%
+ # cbind(., restaurant$osm_points$addr.street) %>%
+  #cbind(., restaurant$osm_points$addr.postcode) %>%
+ # cbind(., restaurant$osm_points$addr.city) %>%
+  #cbind(., restaurant$osm_points$addr.state) %>%
+  #cbind(., restaurant$osm_points$cuisine)
+
+q0 <- opq(bbox = c(-77.007980,38.651735,-76.565094,39.082639)) 
+
+
+clinics <- add_osm_feature(opq = q0, key = 'amenity', value = "clinic") %>%
+  osmdata_sf(.)
+
+
+dentist <-add_osm_feature(opq = q0, key = 'amenity', value = "dentist") %>%
+  osmdata_sf(.)
+
+
+doctors <-add_osm_feature(opq = q0, key = 'amenity', value = "doctors") %>%
+  osmdata_sf(.)
+
+hospitals <-add_osm_feature(opq = q0, key = 'amenity' , value = "hospital") %>%
+  osmdata_sf
+
+#Now to create the sf dataframe w columns of interest
+
+
+clinics.sf <-st_geometry(clinics$osm_points) %>%
+  st_transform(crs = crs) %>%
+  st_sf() %>%
+  cbind(., clinics$osm_points$name) %>%
+  cbind(., clinics$osm_points$operator)%>%
+  cbind(., clinics$osm_points$`healthcare:speciality`)%>%
+  cbind(., clinics$osm_points$`healthcare`)%>%
+  cbind(., clinics$osm_points$`addr:city`)
+
+colnames(clinics.sf) <- gsub("clinics.osm_points.","",colnames(clinics.sf))
+  
+
+dentist.sf<-st_geometry(dentist$osm_points) %>%
+  st_transform(crs = crs) %>%
+  st_sf() %>%
+  cbind(., dentist$osm_points$name) %>%
+  cbind(., dentist$osm_points$operator)%>%
+  cbind(., dentist$osm_points$`healthcare:speciality`)%>%
+  cbind(., dentist$osm_points$`healthcare`)%>%
+  cbind(., dentist$osm_points$`addr:city`)
+
+
+doctors.sf <-st_geometry(doctors$osm_points) %>%
+  st_transform(crs = crs) %>%
+  st_sf() %>%
+  cbind(., doctors$osm_points$name) %>%
+  cbind(., doctors$osm_points$name) %>%
+  cbind(., doctors$osm_points$operator)%>%
+  cbind(., doctors$osm_points$`healthcare:speciality`)%>%
+  cbind(., doctors$osm_points$`healthcare`)%>%
+  cbind(., doctors$osm_points$`addr:city`)
+ 
+
+hospitals.sf <-st_geometry(hospitals$osm_points) %>%
+  st_transform(crs = crs) %>%
+  st_sf() %>%
+  cbind(., hospitals$osm_points$name)
+
+# going to get the polygons for maryland to create maps here
+MDcounties <- counties(state = 'MD', cb = FALSE)%>%
+  st_as_sf()%>%
+  st_transform(crs=crs)
+
+PG_county <- MDcounties %>%
+  filter(NAME == "Prince George's") %>%
+  st_as_sf() %>%
+  st_transform(crs = crs)
+
+maryland_sf <- st_union(MDcounties)
+```
+
+# Maps
+
+Below are maps for each of our points of interest. Prince George's county is in green, the points of interest are in red, and the church site is in blue. These maps give us an idea of the distribution of each type of health care center. 
+
+I am going to verify with my professor what this workflow produced. I have a hard time believing that this is all that there is.
+
+```{r Maps from OSM calls, warning =FALSE , cache = FALSE, message = FALSE, results='hide'}
+
+#Maps
+ggplot() +
+  geom_sf(data = PG_county, fill = "light green", color = "black") +
+  geom_sf(data = church_sf, color = "blue", size = 2) +
+  geom_sf(data = clinics.sf, aes(color = "Clinics"), size = 1) +
+  scale_color_manual(values = "red") +
+  labs(title = "PG County, and Clinics Locations") +
+  theme_minimal()+
+  mapTheme()
+
+ggplot() +
+  geom_sf(data = PG_county, fill = "light green", color = "black") +
+  geom_sf(data = church_sf, color = "blue", size = 2) +
+  geom_sf(data = dentist.sf, aes(color = "Dentists"), size = 1) +
+  scale_color_manual(values = "red") +
+  labs(title = "PG County, and Dentists Locations") +
+  theme_minimal()+
+  mapTheme()
+
+ggplot() +
+  geom_sf(data = PG_county, fill = "light green", color = "black") +
+  geom_sf(data = church_sf, color = "blue", size = 2) +
+  geom_sf(data = hospitals.sf, aes(color = "Hospitals"), size = 1) +
+  scale_color_manual(values = "red") +
+  labs(title = "PG County, and Hospitals Locations") +
+  theme_minimal()+
+  mapTheme()
+
+ggplot() +
+  geom_sf(data = PG_county, fill = "light green", color = "black") +
+  geom_sf(data = church_sf, color = "blue", size = 2) +
+  geom_sf(data = doctors.sf, aes(color = "Doctors"), size = 1) +
+  scale_color_manual(values = "red") +
+  labs(title = "PG County, and Doctors Locations") +
+  theme_minimal()+
+  mapTheme()
+
+
+
+```
+
+``` {r writing shapefile, include= FALSE, cache = FALSE, eval = FALSE }
+
+# Specify the file path for the shapefile (replace 'output_shapefile' with your desired file name)
+#output_file <- "output_shapefile.shp"
+
+# Write the sf data frame to a shapefile
+#st_write(sf_data, output_file)
+
+
+clinics_outpath <- "clinics.shp"
+
+doctors_outpath <- "doctors.shp"
+
+
+dentists_outpath <- "dentists.shp"
+
+hospitals_outpath <- "hospitals.shp"
+
+st_write(clinics.sf, clinics_outpath)
+
+st_write(doctors.sf, doctors_outpath)
+
+st_write(dentist.sf, dentists_outpath)
+
+st_write(hospitals.sf, hospitals_outpath)
