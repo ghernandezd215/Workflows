@@ -1,0 +1,78 @@
+---
+title: "GENERAL DATA ANALYSIS PACKAGES AND FRAMEWORK"
+author: "Gabriel Hernandez"
+date: "2024-03-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#PAckages to install
+install.packages("rsample") #resampling and holdout sets
+install.packages("parsnip") #great for creating random forests to evaluate a model
+install.packages("recipes") #allows quick scaling of predictors before 
+install.packages("broom") #reports model results well
+install.packages("corr") # 
+install.packages("spDataLArge") #
+install.packages("tidytext")
+install.packages("scales") #ggplot 2 scales and legend grammar
+install.packages("flexdashboard") #make dashboards
+install.packages("shiny")
+install.packages("ipumsr") #access IPUMS data
+install.packages("mapsapi") #access google api
+install.packages('tidygeocoder') #convert addresses to coordinates and vice versa
+install.packages('ggforce') #built above ggplot 2
+install.packages("lubridate") #work w dates
+install.packages("rvest") #webscraping
+install.packages("polite") #treat robots w respect
+install.packages("reactable") #custom data tables
+install.packages("tidyquant") #financial analysis
+install.packages('quantmod') #financial analyis
+install.packages("httr2") #explicit request object for api
+
+
+
+
+
+
+
+
+```
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+

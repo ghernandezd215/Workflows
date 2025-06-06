@@ -1,0 +1,89 @@
+---
+title: "processing_pdfs_orderedcombined"
+author: "Saturnya"
+date: "2025-04-24"
+output: html_document
+---
+
+This R Markdown document demonstrates how to combine multiple PDF files into a single PDF using the **pdftools** package, wrapped in a reusable function that supports an overwrite feature.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Install and Load **pdftools**
+
+```{r install-pdftools}
+if (!requireNamespace("pdftools", quietly = TRUE)) {
+  install.packages("pdftools")
+}
+library(pdftools)
+```
+
+## 2. Define the `combine_pdfs()` Wrapper Function
+
+The function takes three arguments:
+
+- `input_files`: character vector of PDF file paths, in the order to combine
+- `output_file`: path for the combined PDF
+- `overwrite`: logical, whether to overwrite an existing output_file (default `FALSE`)
+
+```{r define-function}
+combine_pdfs <- function(input_files, output_file, overwrite = FALSE) {
+  # Check overwrite
+  if (file.exists(output_file) && !overwrite) {
+    stop("Output file already exists. Use overwrite = TRUE to replace it.")
+  }
+
+  # Ensure output directory exists
+  out_dir <- dirname(output_file)
+  if (!dir.exists(out_dir)) {
+    dir.create(out_dir, recursive = TRUE)
+  }
+
+  # Attempt to combine
+  tryCatch(
+    {
+      pdf_combine(input = input_files, output = output_file)
+      message(sprintf(
+        "✅ Successfully combined %d PDFs into '%s'",
+        length(input_files), output_file
+      ))
+    },
+    warning = function(w) {
+      message("⚠️ Warning during combine: ", w$message)
+    },
+    error = function(e) {
+      stop("❌ Failed to combine PDFs: ", e$message)
+    }
+  )
+}
+```
+
+## 3. Specify and Combine Your PDFs
+
+Edit the input vector and output path, then call the function. If you want to overwrite an existing file, set `overwrite = TRUE`.
+
+```{r example-use}
+pdf_files <- c(
+  "C:/Users/User/Downloads/LETTER_ANDREASGAZEL_GE_04232025.pdf",
+  "C:/Users/User/Downloads/CA_GE_04242025_v1.pdf"
+)
+output_pdf <- "C:/Users/User/Desktop/PROPOSAL_GE_04242025.pdf"
+
+# Combine, allowing overwrite if needed:
+combine_pdfs(pdf_files, output_pdf, overwrite = TRUE)
+```
+
+---
+
+**Customization Ideas**
+
+- Wrap in an R package function for reuse across projects.
+- Add interactive prompts to select files at runtime.
+- Incorporate logging or verbose modes for detailed progress.
+- Extend to batch process directories of PDFs.
+
+
+```
+

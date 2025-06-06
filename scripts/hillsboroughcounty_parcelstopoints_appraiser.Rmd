@@ -1,0 +1,367 @@
+---
+title: "hillsborough_county_allsales_Analysis"
+author: "Saturnya"
+date: "2025-04-03"
+output: html_document
+---
+
+```{r}
+
+#load packages
+install.packages(c("foreign", "ggmap", "dplyr"), dependencies=TRUE)
+install.packages("sf",dependencies=TRUE)
+install.packages("dplyr",dependencies=TRUE)
+install.packages("tidyverse", dependencies=TRUE)
+install.packages(c("priceR","blscrapeR"))
+install.packages("readr", dependencies=TRUE)
+install.packages("leaflet", dependencies=TRUE)
+install.packages("lubridate",dependencies=TRUE)
+install.packages("RPostgreSQL", type = "binary")
+install.packages("readr", dependencies=TRUE)
+install.packages("here", dependencies = TRUE)
+install.packages("tibble", dependencies=TRUE)
+
+```
+
+```{r}
+library(lubridate)
+library(leaflet)
+library(sf)
+library(here)
+library(dplyr)
+library(tidyverse)
+library(readr)
+library(foreign)
+library(ggmap)
+library(dplyr)
+library(readr)
+library(priceR) #for inflation adjusting
+library(blscrapeR)
+library(tibble)
+
+```
+
+
+Source fucntions:
+
+```{r}
+source(here("R", "utils", "functions.R"))
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Introduction
+
+The following script is intended to analyze Hillsborough County all sales data.
+
+The goals of this project are to look at where sales are happening, to develop an object that can be connected/clipped to census data objects. As well as to develop maps that explore different data objects. Using standard boundary objects for spatial joins, the date data should be interesting. 
+
+Consider, how can this be compined with the road network?
+
+
+
+#Loading Data
+
+I have the data saved locally in case I fail to load it from a link on the county website. The goal is to load from the county website and regenerate the objects.
+
+I am going to be applying caching into my workflow. As I create large datasets, I will save them so I do not have to perform calculations in the future. This function depends on a 'cache_or_compute() wrapper stored in the root/R/utils directory. The arguments it takes are "object name" , compute_expr={functions you want performed}. For dating purposes, you could us as.string() to concotenate a file name based on client/date/etc.
+
+All cached objects go into a cache sub-root folder 
+
+## Loading Data
+
+### Load allsales Data (from csv)
+
+Opening the data from a local csv (ideally could do so on some cloud device then cache result)
+```{r}
+
+csv_path <- here("data", "places", "florida", "hillsborough", "hillsborough_county", "allsales03_28_2025.csv")
+
+#create and cache
+allsales_data<-cache_or_compute("allsales_data", 
+                 compute_expr = {allsales_data <-read_csv(csv_path)})
+
+
+
+```
+
+### All Parcels data (shapefile from zipped folder)
+
+
+At first, I was having a hard time loading the file from the relative path. Apparently beecause St_read() is calling the path from this script's relative files rather than the root project (working) directory. use the here package to foolproof these errors. 
+
+MY goal here is to load the data and delete the temporary zip so it does not take up memory. 
+
+In this section I will most importantly join the sales data to the parcels in a way that allows me to get an address column in the allsales_dataset. This is the input that I can use with google maps API to turn each of theses sales into points for point pattern analysis. 
+
+I may add other columns in the future. 
+
+#### WRAPPER extract zip with fallback
+
+The extract_zip_with_fallback()extracts files into a temporary folder is is deleted at the end of the chunk. It uses 2 important inputs: where the folder you want to unzip is located and where to have the temp_unzipped folder.
+
+The wrapper troubleshoots the unzip process, which can be unreliable.
+
+
+```{r}
+
+#path to zip on local machine
+
+zip_path_1 <- here("data", "places", "florida", "hillsborough", "hillsborough_county", "parcel_03_28_2025.zip")
+
+#path_to_output (temporary)
+output_dir_1 <- here("temp_unzipped_1")
+
+extract_zip_with_fallback(zip_path_1,output_dir_1)
+
+#safest way to ensure file is being opened based on the root directory
+shp_file_1 <- here("temp_unzipped_1", "parcel.shp")
+
+allparcels_sf<-cache_or_compute("allparcels_sf", compute_expr = {st_read(shp_file_1)})
+
+#At the end of this, delete the temp_unzipped_1 directory
+
+unlink(here("temp_unzipped_1"), recursive = TRUE)
+
+```
+
+### Data Wrangling - All Sales Data
+
+The following code prepares the allsales data for analysis. 
+
+To start, take a look at all of the columns and the data type. Analyze if there need to be any chances. For example, is the date column a proper data time type? Are continuous variables double? Are factors factored?
+
+####Transforming the S_DATE column
+
+I want to use the S_DATE values to create new labels that designate which sales have taken place the past year, 2 years, 3 years, 5, 10, 20. Then separately, know in which decade the sale took place each.
+
+The following code seeks to do so using lubridate and dyplr functions.
+
+I want to test the accuracy of the date time column's standardization.
+
+To do so, I will save the original column and compare its value to the transformed column's value. I will choose observations based on random index positions and conclude the effectiveness of the algorith. It is debatable, for a dataset this large, how many values should be compared side by side to determine the safety to move forward with the analysis. Ideally, an AI could do the side by side comparison. 
+
+Is there a function that can already do that?****
+
+Note that upon conversion the S_DATE column becomes a 'dttm' type with the POSIT function.
+
+I have to add as.Date() to turn the S_DATE into a class Date type (As opposed to a class dttm type. ) This is to use the inflation calculation function cleanly, as it may not take POSIT class types as argument.
+
+The option to turn it back into POSIT if needed exists.
+```{r}
+#============================================
+#first
+#save original column
+#create the transformation of the S_DATE column
+#generate time-based labels for the dataset
+allsales_date <- cache_or_compute("allsales_date", 
+                                  compute_expr={allsales_data %>%
+                                                mutate(S_DATE_original = S_DATE)%>%
+                                                mutate(S_DATE = as.Date(parse_date_time(S_DATE_original, orders = c("mdy", "ymd", "dmy", "mdY",  "Ymd"))),
+                                                   years_since_sale = interval(S_DATE, Sys.Date()) / years(1),
+                                                   sale_decade = paste0(floor(year(S_DATE) / 10) * 10, "s"),
+                                                   sale_period_label = case_when(
+                                                        years_since_sale <= 1 ~ "past_1_year",
+                                                        years_since_sale <= 2 ~ "past_2_years",
+                                                        years_since_sale <= 3 ~ "past_3_years",
+                                                        years_since_sale <= 5 ~ "past_5_years",
+                                                        years_since_sale <= 10 ~ "past_10_years",
+                                                        years_since_sale <= 20 ~ "past_20_years",
+                                                        TRUE ~ sale_decade)
+                                            )
+                                            }
+                                          )
+#============================
+#TEST
+#set seed
+#create vector (A) of random index values
+#slice with vector(A), create new small object
+#select the columns to compare
+#view
+
+set.seed(42)  # for reproducibility
+
+sample_rows <- sample(nrow(allsales_date),100 ) #vector of random index values
+
+allsales_date_test<-allsales_date %>%
+  slice(sample_rows) %>%
+  select(S_DATE_original, S_DATE)
+
+#VIEW THE OBJECT below AND COMPARE VALUES, DID THE ALGORITHM MAKE MISTAKES? WHICH ONES?
+
+
+##remove previously cached object
+rm(allsales_data)
+```
+I conclude that the algorithm is standardizing the date/time values accurately based on the test. 
+
+
+####Adjust Sale Amount values for inflation
+I have contacted the county to find out if I need to adjust for inflation according to each sale. I have identified the following code to do so.
+
+Keep it in mind in general as it can be applied to any dataset's values on an as-needed basis. 
+
+The data only goes until a certain point. There may need to be a more accurate way to calculate more recent inflation numbers. 
+
+**Understand the extrapolate future method argument better. Keep as is to move forward for now. 
+```{r}
+
+allsales_inflationadjusted<- cache_or_compute("allsales_inflationadjusted", compute_expr = {allsales_date %>% 
+    mutate(
+       adjusted_price = adjust_for_inflation(
+            price = S_AMT,       # your price column
+            from_date = S_DATE,       # date of transaction
+            to_date = "2024-12-31",     # adjust to today's dollars
+            extrapolate_future_method = 'rate',
+            future_rate=0.03,
+            country = "US"
+    )
+  )})
+
+#remove date object
+rm(allsales_date)
+
+```
+
+
+At this point, for the All Sales dataset, we can only create visualizations led by time. WE could figure out total value of sale amount. Check if the sale amounts are adjusted for inflation or if they need to be adjusted!!!! 
+
+To adjust for inflation we use the priceR/ blsscrapeR
+
+WE can get the count of sales per time period per structure type, DOR_code, at the time of sale. 
+
+We could then group by decade/time period, and summarize averages and total counts. 
+
+##All Parcels Dataset
+
+In this section I will most importantly join the sales data to the parcels in a way that allows me to get an address column in the allsales_dataset. This is the input that I can use with google maps API to turn each of theses sales into points for point pattern analysis. 
+
+I may add other columns in the future. 
+
+In the next chunk, I will join the sf all parcels data to the all sales data points so that by folio each will get the corresponding address column. It is this column that will be needed to create points out of the all sales data.
+
+```{r}
+allsales_fulladdress<-cache_or_compute("allsales__fulladdress",
+                 compute_expr = {
+                    merge(allsales_inflationadjusted, allparcels_sf,  by="FOLIO", all.x=TRUE)%>%
+                     mutate (full_addy=paste(ADDR_1, SITE_CITY, SITE_ZIP, sep = ", "))%_%
+                     st_drop_geometry() #removes geometry to avoid potential future conflicts. parcel centroid comparison to be done
+                             }
+                 )
+
+
+#remove previously cached object                    
+rm(allsales_inflationadjusted)
+
+#Count of NA Values for analysis
+
+num_not_matched <- allsales_fulladdress %>%
+  filter(is.na(ADDR_1)) %>%
+  nrow()
+#returns a count of 4788 
+
+```
+
+A total of 4,788 sales did not match an address. I could test out which these were later. However, I will move forward given that it is a small percentage of all observations
+
+## Connect to the Google Maps API and generate geometries
+
+```{r}
+#define api key in a local .Renviron file
+#get from google, store in an .renviron file
+
+ggmap_api_key <- Sys.getenv("ggmaps_api")
+
+#Register it with google for usage
+register_google(key = ggmap_api_key, write = FALSE)
+
+```
+
+Explore the Data to find the address column name to geocode.
+
+Keep in mind: in the code below, allsales_address has polygon parcels, the gpurpose o geocoding is to get accurate points.
+
+```{r}
+#explore in console to get the address column name
+
+##names(allsales_fulladdress)
+
+# Replace 'address_column_name' with actual column name (e.g., 'ADDRESS' or 'FULL_ADDR')
+#creates an in-between object for geocoding efficiently 
+allsales_test_address <-cache_or_compute("allsales_test_address" , 
+                                          compute_expr = {allsales_fulladdress %>%
+                                               filter(!is.na(full_addy)) %>%
+                                               distinct(full_addy)#%>%
+                                               #slice_sample(n = 100) #if commented out, full list is georeferenced
+                                                         }, overwrite = TRUE
+                                        )
+
+#review what the mutate geocode function returns
+##this code performs the API CALL
+geocoded_data <- cache_or_compute("geocoded_data", 
+                                  compute_expr = {allsales_test_address %>%
+                                  mutate_geocode(full_addy, output = "latlon", source = "google")},overwrite=TRUE)
+
+# Merge Results Back
+#allsales_geocoded <- cache_or_compute("allsales_geocoded", 
+                                      #compute_expr = {
+                                      #st_drop_geometry(allsales_fulladdress)%>%
+                                      #left_join(allsales_fulladdress,
+                                           #    geocoded_data, 
+                                            #    by = "full_addy")
+  #                                      }
+ #                                     )
+
+
+#filter this data by location type
+##location_type="ROOFTOP"
+###use the following code
+#mutate(precision_flag = ifelse(location_type != "ROOFTOP", "Low    Precision", "High Precision"))
+
+#clean by high precision addresses(ROOFTOP)
+###high precision code -> filter(location_type == "ROOFTOP")
+```
+
+```{r}
+#USE LAT LON COLUMNS FORM GEOCODE FUNCTION TO CONVERT DATAFRAME INTO AN SF OBJECT
+
+allsales_sf_final <- cache_or_compute("allsales_sf_final", 
+                                      compute_expr = {st_as_sf(allsales_geocoded, 
+                                                               coords = c("lon", "lat"), 
+                                                               crs = 4326, 
+                                                               remove = FALSE)
+                                                     }
+                                     )
+
+
+
+
+```
+
+
+#Statistical Analysis
+
+Use the following Structure once a final master dataset is ready for g
+
+##Level 1: Summary Statistics
+
+###Object 1
+
+####Graphs
+####Histogram
+####BoxPlot
+####Tables
+####Preliminary Maps
+####Correlation Matrix
+
+###Object 2
+
+##Level 2: Inferential Statistics
+
+##Level 3: Point Pattern Analysis
+
+##Level 4: Spatial Optimization
+
+##LEvel 5: Modeling

@@ -1,0 +1,169 @@
+---
+title: "raw_no_rel_data_analysis"
+author: "Saturnya"
+date: "2025-04-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Introduction
+
+This is to analyze the complete data, without the margin of error based data cut.
+
+These variables would benefit from the same corrections strategy as in the previous
+
+```{r}
+
+austin_county_acs5yr_tracts<-readRDS(here("clients","arshad","cache", "austin_county_acs5yr_tracts.rds"))
+
+
+
+
+
+
+```
+
+```{r}
+austin_county_acs5yr_tracts <- austin_county_acs5yr_tracts %>%
+  mutate(
+    total_population = B01003_001E,
+    median_age_total = B01002_001E,
+    median_age_male = B01002_002E,
+    median_age_female = B01002_003E
+  ) %>%
+  rowwise() %>%
+  mutate(
+    living_alone_total = sum(c_across(c(B09019_005E, B09019_008E)), na.rm = TRUE),
+    pct_living_alone = living_alone_total / total_population * 100,
+
+    male_30_54 = sum(c_across(c(
+      B12002_008E, B12002_009E, B12002_010E, B12002_011E, B12002_012E,
+      B12002_040E, B12002_041E, B12002_042E, B12002_043E, B12002_044E,
+      B12002_070E, B12002_071E, B12002_072E, B12002_073E, B12002_074E,
+      B12002_085E, B12002_086E, B12002_087E, B12002_088E, B12002_089E
+    )), na.rm = TRUE),
+
+    female_30_54 = sum(c_across(c(
+      B12002_101E, B12002_102E, B12002_103E, B12002_104E, B12002_105E,
+      B12002_133E, B12002_134E, B12002_135E, B12002_136E, B12002_137E,
+      B12002_163E, B12002_164E, B12002_165E, B12002_166E, B12002_167E,
+      B12002_178E, B12002_179E, B12002_180E, B12002_181E, B12002_182E
+    )), na.rm = TRUE),
+
+     income_75k_plus = sum(c_across(c(
+    B19101_013E, B19101_014E, B19101_015E, B19101_016E, B19101_017E
+  )), na.rm = TRUE),
+  
+  income_125k_plus = sum(c_across(c(
+    B19101_015E, B19101_016E, B19101_017E
+  )), na.rm = TRUE),
+
+  pct_income_75k_plus = income_75k_plus / B19025_001E * 100,
+  pct_income_125k_plus = income_125k_plus / B19025_001E * 100,
+    
+    pct_male_30_54 = male_30_54 / total_population * 100,
+    pct_female_30_54 = female_30_54 / total_population * 100
+  ) %>%
+  ungroup()
+
+```
+
+
+
+```{r}
+
+austin_county_acs5yr_tracts <- austin_county_acs5yr_tracts %>%
+  rename(
+    median_household_income = B19013_001E,
+    aggregate_household_income = B19025_001E,
+    income_75k_99k = B19101_013E,
+    income_100k_124k = B19101_014E,
+    income_125k_149k = B19101_015E,
+    income_150k_199k = B19101_016E,
+    income_200k_plus = B19101_017E,
+    white_alone = C02003_003E,
+    black_alone = C02003_004E,
+    asian_alone = C02003_006E,
+    two_or_more_races = C02003_009E,
+    hispanic_or_latino = B03003_003E,
+    bachelors_degree = B15003_022E,
+    masters_degree = B15003_023E,
+    professional_degree = B15003_024E,
+    doctorate = B15003_025E,
+    median_value_pre1939 = B25107_011E,
+    vacant_residence_elsewhere = B25005_002E,
+    male_living_alone = B09019_005E,
+    female_living_alone = B09019_008E,
+    cuban_ancestry = B05006_143E,
+    male_30_34_never = B12002_008E,
+    male_35_39_never = B12002_009E,
+    male_40_44_never = B12002_010E,
+    male_45_49_never = B12002_011E,
+    male_50_54_never = B12002_012E,
+    male_30_34_sep = B12002_040E,
+    male_35_39_sep = B12002_041E,
+    male_40_44_sep = B12002_042E,
+    male_45_49_sep = B12002_043E,
+    male_50_54_sep = B12002_044E,
+    male_30_34_wid = B12002_070E,
+    male_35_39_wid = B12002_071E,
+    male_40_44_wid = B12002_072E,
+    male_45_49_wid = B12002_073E,
+    male_50_54_wid = B12002_074E,
+    male_30_34_div = B12002_085E,
+    male_35_39_div = B12002_086E,
+    male_40_44_div = B12002_087E,
+    male_45_49_div = B12002_088E,
+    male_50_54_div = B12002_089E,
+    female_30_34_never = B12002_101E,
+    female_35_39_never = B12002_102E,
+    female_40_44_never = B12002_103E,
+    female_45_49_never = B12002_104E,
+    female_50_54_never = B12002_105E,
+    female_30_34_sep = B12002_133E,
+    female_35_39_sep = B12002_134E,
+    female_40_44_sep = B12002_135E,
+    female_45_49_sep = B12002_136E,
+    female_50_54_sep = B12002_137E,
+    female_30_34_wid = B12002_163E,
+    female_35_39_wid = B12002_164E,
+    female_40_44_wid = B12002_165E,
+    female_45_49_wid = B12002_166E,
+    female_50_54_wid = B12002_167E,
+    female_30_34_div = B12002_178E,
+    female_35_39_div = B12002_179E,
+    female_40_44_div = B12002_180E,
+    female_45_49_div = B12002_181E,
+    female_50_54_div = B12002_182E
+  )
+
+
+
+
+
+```
+
+
+
+```{r}
+austin_tract_appends<-austin_county_acs5yr_tracts%>%
+  select(pct_male_30_54, pct_female_30_54,male_30_54,female_30_54,vacant_residence_elsewhere, two_or_more_races,income_75k_plus,income_125k_plus, NAME)
+
+```
+
+
+
+
+```{r}
+
+saveRDS(
+  austin_tract_appends,
+  file = here("clients", "arshad", "cache", "austin_county_acs5yr_appends.rds")
+)
+
+
+
+```

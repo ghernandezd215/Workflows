@@ -1,0 +1,520 @@
+---
+title: "Local Moran's I -Hotspot analysis"
+author: "Saturnya"
+date: "2025-04-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+crs <- "EPSG:2277"
+#install.packages("spdep")
+#install.packages("tidyr")
+#install.packages("ggplot2")
+install.packages("tmap")
+library(sf)
+library(spdep)
+library(tmap)
+library(here)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(stringr)
+
+source(here("R","utils", "functions.R"))
+
+```
+#Local Moran's I Hotspot Analysis
+
+##Load project-level cleaned df with points of interests cached dataset.
+
+This is a dataset that only has tract level variables that we are interest in for this project
+
+The object is tract level ACS 5-Year estimates with counts of point of interst location per tract.
+
+```{r}
+
+#Cache
+locmor_working_df<-readRDS(here("clients", "arshad", "cache", "arshad_austin_tracts_ready_poi.rds"))
+
+#for 
+
+locmor_working_df <- locmor_working_df %>%
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0)))
+
+```
+
+##Create neighbors matrix 
+
+```{r}
+neighbors <- poly2nb(locmor_working_df)
+
+```
+
+##Select numeric variables in dataset - (precheck)
+
+Verify count of NA values. I did, ready to go removing NA values when iterating over each variable.
+
+```{r}
+variables <- names(locmor_working_df)[sapply(locmor_working_df, is.numeric)]
+
+#How many NA values per variables?
+##Initialize summary table for post calculations
+summary_df <- data.frame(variable = character(),
+                         n_NA = integer(),
+                         n_hotspots = integer(),
+                         stringsAsFactors = FALSE)
+
+
+
+
+```
+##Function to iterate local moran's I calculations on a df object
+
+The following code iterates over each variable, removes NA values, subsets the neighbors and weights, then calculates the local morans values and identifies hotspot.
+
+Note that you can change the threshhold of the p value. .05 is good, 0.03 even better. 
+```{r}
+
+for (var in variables) {
+  if (all(is.na(locmor_working_df[[var]]))) next
+
+  subset_logical <- !is.na(locmor_working_df[[var]])
+  non_na_index <- which(subset_logical)
+
+  subset_neighbors <- subset.nb(neighbors, subset = subset_logical)
+  subset_weights <- nb2listw(subset_neighbors, style = "W", zero.policy = TRUE)
+  subset_values <- locmor_working_df[[var]][non_na_index]
+
+  local_moran <- localmoran(subset_values, subset_weights, zero.policy = TRUE)
+
+  I_vals <- rep(NA, nrow(locmor_working_df))
+  p_vals <- rep(NA, nrow(locmor_working_df))
+  hotspots <- rep(NA, nrow(locmor_working_df))
+
+  I_vals[non_na_index] <- local_moran[, 1]
+  p_vals[non_na_index] <- local_moran[, 5]
+  hotspots[non_na_index] <- p_vals[non_na_index] < 0.03 & I_vals[non_na_index] > 0
+
+  locmor_working_df[[paste0(var, "_I")]] <- I_vals
+  locmor_working_df[[paste0(var, "_p")]] <- p_vals
+  locmor_working_df[[paste0(var, "_hotspot")]] <- hotspots
+
+  summary_df <- rbind(summary_df, data.frame(
+    variable = var,
+    n_NA = sum(is.na(locmor_working_df[[var]])),
+    n_hotspots = sum(hotspots, na.rm = TRUE)
+  ))
+}
+
+
+# the result is a summary df and more columns in the df for the individual local morans i outputs
+```
+
+###Clean up the working dataset
+
+
+```{r}
+# Remove columns ending in _p or _I
+locmor_working_df <- locmor_working_df %>%
+  select(-matches("(_p|_I)$"))
+
+# Remove columns with more than 40% missing values
+threshold_1 <- 0.4
+
+locmor_working_df <- locmor_working_df %>%
+  select(where(~ mean(is.na(.)) <= threshold_1))
+```
+
+
+
+#Calculate times that a variable is a hotspot in an area
+
+##First, Load all the variables that matter. 
+
+###Load column names and select only the variables that you want to take into consideration
+
+The code below makes our wide data into long with the pivot function.
+
+because I want to count the times a variable is a hot spot, and want to display it later, this code strips the 'hotspot part of the variable.
+
+make sure factor columns are exactly that. as oppsoed to binary. 
+
+###The code below takes the output local morans df and pivots it to calculate counts of hotspots
+
+Pivot longer makes the data pivot so that per variable, you have a true or false value per tract.
+
+###keep the geometry and columns that end with _hotspot
+These columns maintain the TRUE/FALSE value of if a particular variable was a hot spot.
+
+```{r}
+##KEEP THIS NAMED OBJECT IN MIND IS THE LOCAL MORANS OUTPUTS DF
+###THIS CODE CALCULATES WHICH WERE HOTSPOTS AND RENAMES VARIABLES TO BE ABLE TO PLOT CLEANLY
+# Stack all hotspot columns into long format
+
+hotspot_long <- locmor_working_df %>%
+  select(geometry, NAME, ends_with("_hotspot")) %>%
+  pivot_longer(
+    cols = -c(geometry, NAME),
+    names_to = "variable",
+    values_to = "hotspot"
+  ) %>%
+  mutate(#this part creates the name of columns for faceted/iterated ploting
+    variable = gsub("_hotspot", "", variable),
+    hotspot_status = case_when(
+      is.na(hotspot) ~ "Unavailable",
+      hotspot ~ "Hotspot",
+      TRUE ~ "Not Hotspot"
+    ),
+    hotspot_status = factor(
+    hotspot_status,
+    levels = c("Hotspot", "Not Hotspot", "Unavailable"))
+  ) %>%
+  st_as_sf()
+
+##LOOK INTO THE NECCESITY OF THIS CODE BELOW, CAN IT BE INCLUDED IN THE FUNCTION ABOVE?
+#to ensure it works, no 0 length variables
+hotspot_long_clean <- hotspot_long %>%
+  group_by(variable) %>%
+  filter(!all(is.na(hotspot_status))) %>%
+  filter(n_distinct(hotspot_status, na.rm = TRUE) > 1) %>%
+  ungroup()
+
+```
+
+#Export the local morans I object
+
+
+###Consider arranging the maps so that specific variabels are next to eachother
+Use this chunk to arrange the facetted maps in a best way for side by side views. 
+
+```{r}
+
+
+#put variables that you can put side by side here
+
+```
+
+###Save the Maps as Images and PDF w/ 'ggforce' and custom function This creates pdf of the distribution of identified hotspots per variable (all) **manually select for client report.
+
+This is where some extra customization can occur.
+
+YOu can choose font families.
+
+gg base is a plot with set parameters that then is copied in style for each variable
+```{r}
+#master function to produce images and pdfs from a ggplot object
+
+export_faceted_map_pages <- function(data, gg_base, facet_var, file_basename, ncol = 2, nrow = 1,
+                                     img_dir = here("clients", "arshad", "outputs", "img"),
+                                     pdf_dir = here("clients", "arshad", "outputs", "pdf"),
+                                     width = 14, height = 8, dpi = 300, overwrite = TRUE) {
+  
+  # Create output dirs if needed
+  if (!dir.exists(img_dir)) dir.create(img_dir, recursive = TRUE)
+  if (!dir.exists(pdf_dir)) dir.create(pdf_dir, recursive = TRUE)
+
+  # Calculate number of pages
+  n_panels <- length(unique(data[[facet_var]]))
+  n_pages <- ceiling(n_panels / (ncol * nrow))
+
+  # Define output paths
+  pdf_path <- file.path(pdf_dir, paste0(file_basename, ".pdf"))
+  png_paths <- file.path(img_dir, paste0(file_basename, "_page_", seq_len(n_pages), ".png"))
+
+  # Check for existing files if overwrite = FALSE
+  if (!overwrite) {
+    existing_files <- c(pdf_path, png_paths[file.exists(png_paths)])
+    if (file.exists(pdf_path) || length(existing_files) > 0) {
+      stop("🛑 Some output files already exist. Set `overwrite = TRUE` to replace them.")
+    }
+  }
+
+  # Remove old files if overwrite = TRUE
+  if (overwrite) {
+    if (file.exists(pdf_path)) {
+      file.remove(pdf_path)
+      message("⚠️ Existing PDF removed: ", pdf_path)
+    }
+    for (png_path in png_paths) {
+      if (file.exists(png_path)) {
+        file.remove(png_path)
+        message("⚠️ Existing PNG removed: ", png_path)
+      }
+    }
+  }
+
+  # Open PDF device
+  pdf(pdf_path, width = width, height = height)
+
+  # Loop through and export
+  for (i in seq_len(n_pages)) {
+    p <- gg_base +
+      ggforce::facet_wrap_paginate(as.formula(paste0("~", facet_var)),
+                                   ncol = ncol, nrow = nrow, page = i)
+
+    # Save PNG
+    ggsave(png_paths[i], plot = p, width = width, height = height, dpi = dpi)
+
+    # Add to PDF
+    print(p)
+  }
+
+  dev.off()
+  message("✅ Export complete: ", n_pages, " page(s) written.")
+}
+```
+#### Use Base Object
+
+Create a base object prior to faceting
+
+considering editing this specific base object!!!! as a function in itself
+```{r}
+hotspot_base <- ggplot(hotspot_long_clean) +
+  geom_sf(aes(fill = hotspot_status), color = "grey90", size = 0.1) +
+  scale_fill_manual(
+    values = c("Hotspot" = "red", "Not Hotspot" = "white", "Unavailable" = "lightgrey"),
+    na.value = "grey80", drop = FALSE
+  ) +
+  labs(fill = "Hotspot Status") +
+  theme_void(base_size = 14) +
+  theme(
+    strip.text = element_text(size = 13, face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10),
+    panel.spacing = unit(1, "lines"),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+
+
+```
+#### Call the custom function to export pdfs of hotspotclean
+Consider how to use basename part of function to get it where it needs to go.
+
+
+Keep in mind: the internal function must be changed client to client.
+```{r}
+#This function saves the faceted maps for the variable in the correct client folders.
+export_faceted_map_pages(
+  data = hotspot_long_clean,
+  gg_base = hotspot_base,
+  facet_var = "variable",
+  file_basename = "hotspot_facets"
+)
+
+#success
+
+```
+SUCCESS!! 
+
+#Next,identify the tract the has the most amount of hotspots. this creates a percensus tract count of hotspots
+
+Filter from hot spot long the variables that interest you.
+
+Remove redundant variables that may cause a double
+##remove unwanted variables (for the count)
+This is where you filter out the varibales you do not want use for hot spot count
+```{r}
+#remove from hotspot_long variables that are not desired for per census tract score.
+#they are in rows, filter the variable column for what you want
+hotspot_filtered <- hotspot_long_clean %>%
+  filter(variable %in% c(
+    "total", "spa", "aesthetics", "income_125k_plus.y",
+    "male_30_54", "female_30_54", "edu_attain_pct",
+    "hispanic_or_latino_pct", "white_alone_pct", "aggregate_household_income_pct",
+    "aggregate_household_income_clipped", "median_household_income_clipped",
+    "log_median_household_income", "log_aggregate_household_income"
+  ))
+
+#Take this OPPURTUNITY TO REMOVE VARIABLESFROM THE COUNT
+```
+
+Now, get the count, per census tract ID where there is a value of True. 
+## perform the summary count, and object to be mapped
+Create a histogram of values. 
+
+******************consider which variables actually count ***************************
+
+```{r}
+hotspot_counts <- hotspot_filtered %>%
+  group_by(NAME) %>%
+  summarise(n_hotspots = sum(hotspot, na.rm = TRUE)) %>% #counts the number of True by default (1 or 0)
+  ungroup() #ungroup to end the grouping structure so that future operations arent grouped
+```
+##Look at Histogram 'hotspot count' is the summary object that contains the per tract information on hotspot counts
+
+Use histogram to detemine cutoffs for 'hottest' census tract
+```{r}
+#plot historgram
+
+
+ggplot(hotspot_counts, aes(x = n_hotspots)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
+  geom_text(stat = "bin", binwidth = 1, aes(label = ..count..), 
+            vjust = -0.5, color = "black", size = 4) +
+  labs(
+    title = "Distribution of Hotspots per Census Tract",
+    x = "Number of Hotspots",
+    y = "Count of Census Tracts"
+  ) +
+  theme_minimal()
+```
+
+## Visualize hottest tracts
+
+Filter hottest tracts and add a label to the initial dataframe 'locmor_austin_df' that includes them. Save as a new object.
+
+Note: in dplyr joins only one object should be sppatial
+
+###Filter for hottest based on histogram 'hottest' object
+
+This is where you enter the 'hottest spots'
+
+For 'hot', a census tract had to be a hot spot at least 3 times
+
+
+```{r}
+
+
+#filter for hottest tracts, visualize on a map
+
+austin_hottracts <- hotspot_counts %>%
+  filter(n_hotspots > 5) %>%
+  select(-geometry)%>%
+  mutate(hottest = case_when(
+         n_hotspots > 7 ~ "hottest", TRUE ~ "hot")
+ )
+
+```
+
+
+###now I will add these labels back to the original dataframe before 
+
+dyplr can only join one spatial object
+```{r}
+
+
+austin_acs5yr_tracts_df_houtput <- locmor_working_df %>%
+  left_join(
+    austin_hottracts %>%
+      st_drop_geometry() %>%
+      select(NAME, hottest),
+    by = "NAME"
+  ) %>%
+  mutate(hottest = replace_na(hottest, "not hot"))
+
+```
+
+###Also, add the number of hotspots to the loc_mor output
+
+```{r}
+austin_acs5yr_tracts_df_houtput<-austin_acs5yr_tracts_df_houtput%>%
+   left_join(hotspot_counts%>%
+               st_drop_geometry()
+               , by="NAME")
+
+```
+###Save the df of hottest
+
+```{r}
+saveRDS(austin_acs5yr_tracts_df_houtput, here("clients", "arshad", "cache", "austin_acs5yr_tracts_df_houtput.rds"))
+
+```
+##Visualize it hottest and hot tracts
+
+```{r}
+# Set map mode
+tmap_mode("plot")  # or "view" for interactive
+
+# Plot with layered styling
+arshad_austin_locmor_hottest_tmap<-tm_shape(austin_acs5yr_tracts_df_houtput) +
+  # Base layer: all tracts in grey
+  tm_polygons(col = "lightgrey", border.col = "white") +
+  
+  # Overlay: only hot/hottest tracts
+  tm_shape(austin_acs5yr_tracts_df_houtput %>% filter(hottest != "not hot")) +
+  tm_polygons("hottest", 
+              palette = c("hot" = "orange", "hottest" = "red"), 
+              title = "Hotspot Level") +
+  
+  # Optional: add tract NAME labels to hot/hottest
+  #tm_text("NAME", size = 0.5, auto.placement = TRUE) +
+  
+  # Layout styling
+  tm_layout(main.title = "Austin Tracts: Hot & Hottest",
+            legend.outside = TRUE)
+
+#Cache
+saveRDS(arshad_austin_locmor_hottest_tmap, here("clients", "arshad", "cache", "arshad_austin_locmor_hottest_tmap.rds"))
+
+
+
+```
+
+###SAVE as image and pdf
+
+Function to check if file exists and save both png and pdf.
+
+#### Custom function that saves both a pdf and img of a map 
+The function contains and overwrite feature.
+
+Keep in mind the width and lenght.
+
+You will have to save these to the right places per client
+```{r}
+#KEEP IN MIND THE IMG AND PDF HAVE TO BE DIRECTED TO the right client folder
+export_tmap_plot <- function(tmap_plot, file_basename,
+                             img_dir = here("clients", "arshad", "outputs", "img"),
+                             pdf_dir = here("clients", "arshad", "outputs", "pdf"),
+                             width = 14, height = 8, dpi = 300, units = "in",
+                             overwrite = TRUE) {
+  
+  # Create output dirs if they don't exist
+  if (!dir.exists(img_dir)) dir.create(img_dir, recursive = TRUE)
+  if (!dir.exists(pdf_dir)) dir.create(pdf_dir, recursive = TRUE)
+
+  # Define output paths
+  png_path <- file.path(img_dir, paste0(file_basename, ".png"))
+  pdf_path <- file.path(pdf_dir, paste0(file_basename, ".pdf"))
+
+  # Handle overwriting
+  if (overwrite) {
+    if (file.exists(png_path)) {
+      file.remove(png_path)
+      message("⚠️ Existing PNG removed: ", png_path)
+    }
+    if (file.exists(pdf_path)) {
+      file.remove(pdf_path)
+      message("⚠️ Existing PDF removed: ", pdf_path)
+    }
+  } else {
+    if (file.exists(png_path) || file.exists(pdf_path)) {
+      stop("🛑 File already exists. Set `overwrite = TRUE` to replace it.")
+    }
+  }
+
+  # 🔧 Save the plot
+  tmap::tmap_save(tmap_plot, filename = png_path, width = width, height = height, dpi = dpi, units = units)
+  tmap::tmap_save(tmap_plot, filename = pdf_path, width = width, height = height, units = units)
+
+  message("✅ tmap plot saved as PNG and PDF.")
+}
+```
+
+#### Save the Hottest Spots plot with function above
+
+Transfer the function to function.r file
+
+
+
+```{r}
+export_tmap_plot(
+  tmap_plot = arshad_austin_locmor_hottest_tmap,
+  file_basename = "hottest_locmor_tmap_plot",
+  overwrite = TRUE
+)
+
+```

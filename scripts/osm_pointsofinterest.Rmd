@@ -1,0 +1,113 @@
+---
+title: 'OSM: Points of Interest by client'
+author: "Saturnya"
+date: "2025-04-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+options(tigris_use_cache = TRUE)
+
+
+
+
+install.packages(c("tigris","purrr","osmdata"))
+library(tigris)
+library(sf)
+library(dplyr)
+library(purrr)
+library(tmap)
+library(osmdata)
+
+```
+
+## R Markdown
+
+```{r}
+
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+```
+#Introduction
+
+The following document will return an sf object of points for a given study area and a particular use. The example here in is for medical spas.
+
+In this code, the study area will be named, the client will be named, and file names will be generated as a function of these inputs.
+
+I will use an open street maps query to get the location of medical spas in austin texas as points. The return is a json object that must be processed for proper visualization. 
+
+
+#OSM Process
+
+##Load Study area from open street maps
+
+This will represent the boudns of the study area. Does OSM keep CBSA Boundaries? Should be quick to load.
+
+```{r}
+
+
+
+```
+
+
+
+
+##create query
+
+Ensure that it stays with the bounds of the study area
+
+```{r}
+
+
+
+```
+
+
+##Extract Data
+
+Process the JSON returned 
+
+```{r}
+
+
+
+```
+
+##Filter
+
+```{r}
+
+
+
+```
+
+
+
+##Extract points
+```{r}
+
+
+
+```
+
+
+##convert to Sf
+
+```{r}
+
+
+```
+
+
+
+
+#export sf
+
+AS RDS object. To be loaded elsewhere as a layer for a plot. 
+```{r}
+
+
+
+```
+

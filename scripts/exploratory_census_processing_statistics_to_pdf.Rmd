@@ -1,0 +1,339 @@
+---
+title: "tract_clean_b4_locmor_input"
+author: "Saturnya"
+date: "2025-04-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#crs<-"EPSG:2277"
+install.packages(c("knitr", "gridExtra", "kableExtra"))
+library(dplyr)
+library(sf)
+library(here)
+library(ggplot2)
+library(gridExtra)
+#library(knitr)
+library(kableExtra)
+library(dplyr)
+
+source(here("R","utils", "functions.r"))
+
+```
+
+#Intro
+Consider creating a relative margin of error for all the variables available.
+
+The following code loads a wrangled census df and performs exploratory analysis. The goal is two-fold, prepare data for chloropleth maps and for further statistical processing.
+
+The outputs will be 1) PDF CHLOROPLETH MAPS FOR EACH VARIABLE and 2) a locmor input df based on client's choices and 3) a clean census df for modeling. Optionally, this is where a 'demand points' df could be created for optimization related models.  
+
+#Process
+
+##Load base (unaltered) tract data for the county,
+We will call this the 'raw' tract data, straight from the api call (which file??)
+```{r}
+
+austin_county_acs5yr_tracts<-readRDS(here("clients","arshad","cache", "austin_county_acs5yr_tracts.rds"))
+
+```
+
+##Analyze each variable's distributions using both historgrams and scatterplotes...
+Remove variables with high relative MOE's.
+
+The following is  a custom function that creates a named vecor titled 'rel_moe' which has names of favriables and a calculated relative margin of error(per)
+
+
+Relative MarginOfErrors are the percentages of rows, for a given variable, that the margin of error / estime= .5 or more. indicating a variable with a very high range of values. The lower the rel, the more trustworthy the variable. 
+
+By altering the threshhold for .5 to .2 in the code below, your study is only more strict. 
+
+For accuracy reporting, it may be good to report rel threshhold. 
+
+##create renamed object to match the index of the rows to the output
+
+###create renamed object. 
+
+This will be used to report variables in future functions below.
+
+```{r}
+austin_county_acs5yr_tracts_renamed <- austin_county_acs5yr_tracts %>%
+  rename(
+    median_household_income = B19013_001E,
+    aggregate_household_income = B19025_001E,
+    income_75k_99k = B19101_013E,
+    income_100k_124k = B19101_014E,
+    income_125k_149k = B19101_015E,
+    income_150k_199k = B19101_016E,
+    income_200k_plus = B19101_017E,
+    white_alone = C02003_003E,
+    black_alone = C02003_004E,
+    asian_alone = C02003_006E,
+    two_or_more_races = C02003_009E,
+    hispanic_or_latino = B03003_003E,
+    bachelors_degree = B15003_022E,
+    masters_degree = B15003_023E,
+    professional_degree = B15003_024E,
+    doctorate = B15003_025E,
+    total_population = B01003_001E,
+    median_age_total = B01002_001E,
+    median_age_male = B01002_002E,
+    median_age_female = B01002_003E,
+    median_value_pre1939 = B25107_011E,
+    vacant_residence_elsewhere = B25005_002E,
+    male_living_alone = B09019_005E,
+    female_living_alone = B09019_008E,
+    cuban_ancestry = B05006_143E,
+    male_30_34_never = B12002_008E,
+    male_35_39_never = B12002_009E,
+    male_40_44_never = B12002_010E,
+    male_45_49_never = B12002_011E,
+    male_50_54_never = B12002_012E,
+    male_30_34_sep = B12002_040E,
+    male_35_39_sep = B12002_041E,
+    male_40_44_sep = B12002_042E,
+    male_45_49_sep = B12002_043E,
+    male_50_54_sep = B12002_044E,
+    male_30_34_wid = B12002_070E,
+    male_35_39_wid = B12002_071E,
+    male_40_44_wid = B12002_072E,
+    male_45_49_wid = B12002_073E,
+    male_50_54_wid = B12002_074E,
+    male_30_34_div = B12002_085E,
+    male_35_39_div = B12002_086E,
+    male_40_44_div = B12002_087E,
+    male_45_49_div = B12002_088E,
+    male_50_54_div = B12002_089E,
+    female_30_34_never = B12002_101E,
+    female_35_39_never = B12002_102E,
+    female_40_44_never = B12002_103E,
+    female_45_49_never = B12002_104E,
+    female_50_54_never = B12002_105E,
+    female_30_34_sep = B12002_133E,
+    female_35_39_sep = B12002_134E,
+    female_40_44_sep = B12002_135E,
+    female_45_49_sep = B12002_136E,
+    female_50_54_sep = B12002_137E,
+    female_30_34_wid = B12002_163E,
+    female_35_39_wid = B12002_164E,
+    female_40_44_wid = B12002_165E,
+    female_45_49_wid = B12002_166E,
+    female_50_54_wid = B12002_167E,
+    female_30_34_div = B12002_178E,
+    female_35_39_div = B12002_179E,
+    female_40_44_div = B12002_180E,
+    female_45_49_div = B12002_181E,
+    female_50_54_div = B12002_182E
+  )
+
+
+#mutate
+
+
+
+
+
+```
+
+
+
+###For mutate check
+The following creates an object of the variables used in the mutate function. 
+
+This is also used to report which variables will not be available for computation following the relative margin of error analysis. 
+
+The REL analysis is meant to weed out unreliable variables.
+```{r}
+vars_used <- c(
+  # Income
+  "income_75k_99k", "income_100k_124k", "income_125k_149k", "income_150k_199k", "income_200k_plus",
+  "aggregate_household_income",
+  
+  # Race/Ethnicity
+  "black_alone", "two_or_more_races", "hispanic_or_latino", "white_alone", "asian_alone", "total_population",
+
+  # Education
+  "bachelors_degree", "masters_degree", "professional_degree", "doctorate",
+
+  # Living Alone
+  "male_living_alone", "female_living_alone",
+
+  # Adults 30–54 (Male)
+  "male_30_34_never", "male_35_39_never", "male_40_44_never", "male_45_49_never", "male_50_54_never",
+  "male_30_34_sep", "male_35_39_sep", "male_40_44_sep", "male_45_49_sep", "male_50_54_sep",
+  "male_30_34_wid", "male_35_39_wid", "male_40_44_wid", "male_45_49_wid", "male_50_54_wid",
+  "male_30_34_div", "male_35_39_div", "male_40_44_div", "male_45_49_div", "male_50_54_div",
+
+  # Adults 30–54 (Female)
+  "female_30_34_never", "female_35_39_never", "female_40_44_never", "female_45_49_never", "female_50_54_never",
+  "female_30_34_sep", "female_35_39_sep", "female_40_44_sep", "female_45_49_sep", "female_50_54_sep",
+  "female_30_34_wid", "female_35_39_wid", "female_40_44_wid", "female_45_49_wid", "female_50_54_wid",
+  "female_30_34_div", "female_35_39_div", "female_40_44_div", "female_45_49_div", "female_50_54_div"
+)
+
+
+```
+
+## Use Custom function to measure relative errors and report which
+
+
+The following Renames variables. I expect this to break if certain variables are removed. 
+It might be word seeing if a dictionary can be entered into the mutate argument. Then, create a index of columns that were removed from the rel_moe calculation and see where the have to be removed in both the mutate and renam inputs. 
+
+Meaning, eliminated variables are not part of the analysis, therefore the naming dictionarty will not work.
+
+### The following performs the high MOE/rel test creating a df that has the renamed variables in the process. 
+the rel threshhold is the amount of observations for a variable that have errors larger than 50% of the average value
+
+```{r}
+ 
+test_result <- remove_high_moe(
+  original_df = austin_county_acs5yr_tracts,
+  renamed_df = austin_county_acs5yr_tracts_renamed,
+  rel_threshold = 0.5,
+  derived_vars_used = vars_used
+)
+
+#retrive outputs of custom function above
+
+cleaned_df <- test_result$cleaned_df #trimmed collumns
+removed_vars <- test_result$removed_vars #removed bars
+missing_inputs <- test_result$missing_inputs #inputs not in the mutate function
+
+```
+Based on the Relative Margin of Error Analysis, what cannot be calculated?
+### The following creates a final, cleaned and renamed, df for further development and exploratory analysis.
+
+```{r}
+#rename and trimmed dataset to build out for export
+
+# Find positions of columns kept in cleaned_df, relative to original_df
+keep_cols <- names(test_result$cleaned_df)
+col_positions <- match(keep_cols, names(austin_county_acs5yr_tracts))
+
+# Use those positions to slice the renamed version
+cleaned_renamed_df <- austin_county_acs5yr_tracts_renamed[, col_positions]
+```
+
+Now that we have the base df cleaned and renamed, perform the mutate function. 
+
+To alter the calculated variables (THIS IS KEY), Find the function in R>utils>"functions.r" to add more variables.
+
+
+##Now mutate the variables that can still be calculated
+```{r}
+final_m_df <- safely_add_derived_metrics(cleaned_renamed_df, setdiff(vars_used, test_result$missing_inputs))
+
+
+final_m_df <- final_m_df %>% select(-matches("margin|M$"))
+
+# Drop all columns at or after "geometry", if it exists
+if ("geometry" %in% names(final_m_df)) {
+  geom_index <- which(names(final_m_df) == "geometry")
+  final_m_df <- final_m_df[, seq_len(geom_index - 1), drop = FALSE]
+}
+
+#removes columsn with NA values
+austin_county_acs5yr_cleaned_tracts<-final_m_df
+
+
+
+```
+
+
+## Exporting dataset
+
+This is the first output: a df for exploratory analysis. With the relevant names acatterplot, histogram and other distribution analysis will confirm what can be worked with. 
+
+###Distribution Analysis
+
+This next code creates a histogram and a scatterplot for each variable for preliminary analysis of normality. The dataset is 290 census tracts, which meets the n=100 assumption.
+####Decide whether or not to put
+The following code will output pdfs to review for data cleaning 
+```{r}
+
+#Custom functio to generate plots of the data's distribution for analysis of outliers and data that is skewed
+generate_data_summary_pdf_safe(austin_county_acs5yr_cleaned_tracts, output_dir =here::here("clients", "arshad", "outputs", "pdf"), filename = "austin_county_acs5yr_explsum.pdf", overwrite = TRUE)
+
+
+```
+#### Review the tests from EUGENE
+I fed the output PDF of the distributions to an ai and verified them myself to consider insights, problems, and solutions  for the variables.
+
+Based on that analysis the key options showed up: trimming outliers, log transforming variables, and normalizing the value of variables by population for a clearer picture on tract to tract differences.
+
+The result is a custom function that takes as inputs vectors of columns to be transformed.
+
+This performs the final cleaning of the original tracts dataset. 
+
+The df is ready for further analysis with reliable inputs. 
+```{r}
+
+# Run the cleaner
+austin_county_acs5yr_refined_tracts <- clean_acs_data(
+  df = austin_county_acs5yr_cleaned_tracts,
+
+  # Variables that should be log-transformed
+  log_vars = c(
+    "median_household_income",
+    "aggregate_household_income",
+    "median_value_pre1939"
+  ),
+
+  # Variables to clip at 95th percentile (outlier capping)
+  clip_vars = c(
+    "median_household_income",
+    "aggregate_household_income",
+    "median_value_pre1939"
+  ),
+
+  # Variables to normalize by total population
+  normalize_vars = c(
+    "aggregate_household_income",
+    "white_alone",
+    "hispanic_or_latino",
+    "bachelors_degree",
+    "masters_degree",
+    "female_living_alone"
+  ),
+
+  # Variables to drop (you requested these removed)
+  remove_vars = c(
+    "male_30_54",
+    "female_30_54"
+  ),
+
+  # Variable used to normalize
+  population_var = "total_population"
+)
+
+
+
+
+```
+
+#Save the model ready input object for loc_mor analysis 'refined' object
+```{r}
+saveRDS(
+ austin_county_acs5yr_refined_tracts,
+  file = here("clients", "arshad", "cache", "austin_county_acs5yr_refined_tracts.rds")
+)
+
+#save geopackage
+
+st_write(
+  austin_county_acs5yr_refined_tracts,
+  dsn = here("clients", "arshad", "cache", "austin_county_acs5yr_refined_tracts.gpkg"),
+  layer = "acs_tracts",
+  driver = "GPKG",
+  delete_layer = TRUE  # Overwrites existing layer if needed
+)
+
+```
+
+Next, add points of interests to the tract as counts.
+
+
+Follow with Local Moran's I analysis. 

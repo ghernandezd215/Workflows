@@ -1,0 +1,51 @@
+---
+title: "CBSA BOUNDARY OBJECT"
+author: "Saturnya"
+date: "2025-04-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(sf)
+library(dplyr)
+library(here)
+
+```
+
+#Introduction
+
+Within the project folder, this set of script locally loads from TOOLKIT a us-wide CBSA shapefile, to be filtered based on project needs. 
+
+#Load
+```{r}
+unzip(here("data", "places", "usa", "tl_2024_us_cbsa.zip"),
+      exdir = here("data", "places", "usa", "cbsa_temp"))
+
+cbsa <- st_read(here("data", "places", "usa", "cbsa_temp"))
+
+unlink(here("data", "places", "usa", "cbsa_temp"), recursive = TRUE)
+
+
+```
+
+#filter
+```{r}
+# Filter CBSA for Austin area
+austin_cbsa <- cbsa %>%
+  filter(grepl("Austin-Round Rock-San Marcos, TX", NAME, ignore.case = TRUE))
+
+
+
+```
+#export
+```{r}
+
+saveRDS(
+  austin_cbsa,
+  file = here("clients","arshad","cache","austin_cbsa_boundary.rds")
+)
+
+
+```

@@ -1,0 +1,194 @@
+---
+title: "Merge: NY State-Owned Parcels / NYC MAPPLUTO As CSV"
+author: "SaturnyaLLC"
+date: "2025-03-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}  
+knitr::opts_chunk$set(echo = TRUE, messages=FALSE)
+```
+#Load neccesary packages.
+
+```{r}
+#load packages
+
+install.packages("sf")
+install.packages("dplyr")
+install.packages("tidyverse")
+install.packages("readr")
+library(sf)
+library(dplyr)
+library(tidyverse)
+library(readr)
+
+```
+
+
+#Introduction
+The purpose of this script is to import NY State-Owned Parcels and filter them by borough.
+
+#Data import
+Make sure that the CRS is the same before performing any spatial operations. 
+```{r}
+
+#open online NY STATE OWNED PARCELS geojson for reduction
+
+nystateownedparcels<-st_read("https://data.gis.ny.gov/datasets/sharegisny::nys-tax-parcels-state-owned.geojson")
+
+#open NYC MAPPLUTO file (from local machine)
+
+# Read the zipped File Geodatabase directly. The previous produced errors, there is a way to load in specifiv variable contained in the dataset. The gollowing code allows you to see a list of layers available for reading. You use the title of the file as an argument in the st_read(). 
+
+nyc_mappluto <- st_read("C:/Users/User/Desktop/local data/MapPLUTO24v4_1.gdb", layer = "MapPLUTO_24v4_1_clipped")
+
+
+#CRS WORK
+#first, get CRS of object that you want to analyze. In this case, the mappluto crs.
+
+crs_reference <- st_crs(nyc_mappluto)
+
+# Set the CRS of the first object (target object) to match the CRS of the reference object. st_transforms performs this function.
+nycwide_stateowned_parcels <- st_transform(nycwide_stateowned_parcels, crs = crs_reference)
+
+```
+
+#Data Wrangling
+
+##NY STATE DATA
+
+The following code filters the NY STATE OWNED PARCELS data set by borough and vacant land PROP CLASS values. In NYC, Vacant land is given a PROP_CLASS value of 11
+
+To create a clean excel for organizers, I dropped the geometry before saving.
+
+###Filtering for NYC
+
+```{r}
+
+bronx_stateowned_parcels<-nystateownedparcels %>%
+    filter(
+      grepl("bronx", MUNI_NAME, ignore.case = TRUE)&
+      grepl("11", PROP_CLASS)
+    )%>%
+     select(COUNTY_NAME, MUNI_NAME, PARCEL_ADDR, LOC_ST_NBR, LOC_STREET,               LOC_ZIP,PROP_CLASS, LAND_AV, TOTAL_AV, SQ_FT, BLDG_STYLE, 
+            BLDG_STYLE_DESC, PRIMARY_OWNER, NYS_NAME
+     )
+      
+
+manhattan_stateowned_parcels<-nystateownedparcels %>%
+    filter(
+      grepl("manhattan",MUNI_NAME, ignore.case = TRUE)&
+      grepl("11", PROP_CLASS)
+    )%>%
+     select(COUNTY_NAME, MUNI_NAME, PARCEL_ADDR, LOC_ST_NBR, LOC_STREET,               LOC_ZIP,PROP_CLASS, LAND_AV, TOTAL_AV, SQ_FT, BLDG_STYLE, 
+            BLDG_STYLE_DESC, PRIMARY_OWNER, NYS_NAME
+     )
+      
+
+brooklyn_stateowned_parcels<-nystateownedparcels %>%
+    filter(
+      grepl("brooklyn",MUNI_NAME, ignore.case = TRUE)&
+      grepl("11", PROP_CLASS)
+    )%>%
+     select(COUNTY_NAME, MUNI_NAME, PARCEL_ADDR, LOC_ST_NBR, LOC_STREET,               LOC_ZIP,PROP_CLASS, LAND_AV, TOTAL_AV, SQ_FT, BLDG_STYLE, 
+            BLDG_STYLE_DESC, PRIMARY_OWNER, NYS_NAME
+     )
+
+queens_stateowned_parcels<-nystateownedparcels %>%
+    filter(
+      grepl("queens",MUNI_NAME, ignore.case = TRUE)&
+      grepl("11", PROP_CLASS)
+    )%>%
+     select(COUNTY_NAME, MUNI_NAME, PARCEL_ADDR, LOC_ST_NBR, LOC_STREET,               LOC_ZIP,PROP_CLASS, LAND_AV, TOTAL_AV, SQ_FT, BLDG_STYLE, 
+            BLDG_STYLE_DESC, PRIMARY_OWNER, NYS_NAME
+     )
+
+staten_stateowned_parcels<-nystateownedparcels %>%
+    filter(
+      grepl("staten island",MUNI_NAME, ignore.case = TRUE)&
+      grepl("11", PROP_CLASS)
+    )%>%
+     select(COUNTY_NAME, MUNI_NAME, PARCEL_ADDR, LOC_ST_NBR, LOC_STREET,               LOC_ZIP,PROP_CLASS, LAND_AV, TOTAL_AV, SQ_FT, BLDG_STYLE, 
+            BLDG_STYLE_DESC, PRIMARY_OWNER, NYS_NAME
+     )
+```
+
+### Combine the individual boroughs into 1 dataset
+The following code takes the individual datasets and combines their rows to create a city-wide dataset
+
+```{r}
+#creates an object containing all rows for NYC
+
+nycwide_stateowned_parcels<-rbind(bronx_stateowned_parcels,                   manhattan_stateowned_parcels, queens_stateowned_parcels,                  staten_stateowned_parcels, brooklyn_stateowned_parcels)
+
+
+```
+
+## Join the State data to the NYC MAPPLUTO Data to get Block-Lot-Combos
+The following code intersects NY State owned parcels with NYC mappluto to attempt to join addresses and block-lot combos with parcels
+
+```{r}
+nyc_stateowned_mappluto<-st_join(nycwide_stateowned_parcels, nyc_mappluto)
+
+nyc_stateowned_mappluto <- nyc_stateowned_mappluto %>%
+  st_drop_geometry()%>%
+  distinct(Address, .keep_all = TRUE)%>%
+  filter(grepl("^[XOC]$", OwnerType, ignore.case = TRUE))%>%
+  select(PROP_CLASS,LAND_AV,TOTAL_AV,SQ_FT,BLDG_STYLE,PRIMARY_OWNER,Borough,Block,Lot,CD,Council,ZipCode,PolicePrct,Address,ZoneDist1,ZoneDist2,ZoneDist3,ZoneDist4,Overlay1,Overlay2,SPDist1,SPDist2,SPDist3,OwnerType,OwnerName,LotArea,BldgArea,AssessLand,AssessTot,BuiltFAR,ResidFAR,CommFAR,FacilFAR,BBL,TaxMap,ZoneMap)
+
+#use this code to arrange columns as desired by their position. Use colnames(df) to identify the indexed position of the column.
+
+nyc_stateowned_mappluto <- nyc_stateowned_mappluto %>%
+  select(
+    !!colnames(nyc_stateowned_mappluto)[34],  # 34th column
+    !!colnames(nyc_stateowned_mappluto)[14],  # 14th column
+    !!colnames(nyc_stateowned_mappluto)[25],  # 25th column
+    !!colnames(nyc_stateowned_mappluto)[6],   # 6th column
+    everything()  # All remaining columns
+  )
+
+#the preceding object does not have geometry!
+
+```
+
+#Data Export
+The following code first creates the desired path. It then checks if the file already exists to avoid duplicating it. Lastly, it saves the file in the desired format.
+
+```{r}
+#desired path establishment
+
+bronx_file_path <- "C:/Users/User/Documents/NEHEMIAH/Outputs/datasets/nehemiah_bronx_stateowned_parcels_03142025.csv"
+
+#function that checks its existence then saves. !file.exist relates the TRUE/FALSE result to the 'if' function, telling it to run or not if the file exists. Make sure the the object you want to save is named correctly
+
+
+# Check if the file exists
+if (!file.exists(bronx_file_path)) {
+  # Example dataset: Replace this with your actual data
+  df <- bronx_stateowned_parcels  # Assuming you already have the filtered dataset
+  
+  # Save as CSV if the file doesn't exist
+  write_csv(df, bronx_file_path)
+  
+  message("File did not exist. Saved: ", bronx_file_path)
+} else {
+  message("File already exists. No action taken.")
+}
+
+# do this for EACH OBJECT TO SAVE INTO THE CLIENTS OUTPUT FOLDER!
+
+nyc_stateowned_mappluto_filepath<-"C:/Users/User/Documents/NEHEMIAH/Outputs/datasets/nehemiah_nycwide_stateowned_mappluto_03142025.csv"
+
+  if (!file.exists(nyc_stateowned_mappluto_filepath)) {
+  # Example dataset: Replace this with your actual data
+  df <- nyc_stateowned_mappluto  # Assuming you already have the filtered dataset
+  
+  # Save as CSV if the file doesn't exist
+  write_csv(df, nyc_stateowned_mappluto_filepath)
+  
+  message("File did not exist. Saved: ",nyc_stateowned_mappluto_filepath)
+} else {
+  message("File already exists. No action taken.")
+}
+  
+```

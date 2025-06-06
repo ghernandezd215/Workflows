@@ -1,0 +1,287 @@
+---
+title: "Final Study Area Map Rendering"
+author: "Saturnya"
+date: "2025-04-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+source(here("Documents","TOOLKIT","R","utils", "functions.R"))
+library(classInt)
+library(scales)
+library(MetBrewer)
+
+
+```
+#PRESETS
+
+1. CRS- EPSG:2277
+2. COLUMN NAME ORDER FOR THE DF
+
+
+#Introduction
+
+The following code laods objects that will be layered/processed to become final maps for the client.
+
+The plotted map will include: a basemap, cbsa statistical boundary for austin, census tract boundaries without water layer,primary roads, client's home site, 
+
+#Load Objects
+
+##census tracts data for austin's county with viable variables houtput
+```{r}
+final_tracts <- readRDS(
+  file = here("clients", "arshad", "cache", "austin_acs5yr_tracts_df_houtput.rds")
+)
+
+```
+
+
+###hotspots per variables
+Convert the og object into long format for the ability to identify hotspot tracts.
+
+```{r}
+
+hotspot_long <- final_tracts %>%
+  select(geometry, NAME, ends_with("_hotspot")) %>%
+  pivot_longer(
+    cols = -c(geometry, NAME),
+    names_to = "variable",
+    values_to = "hotspot"
+  ) %>%
+  mutate(#this part creates the name of columns for faceted/iterated ploting
+    variable = gsub("_hotspot", "", variable),
+    hotspot_status = case_when(
+      is.na(hotspot) ~ "Unavailable",
+      hotspot ~ "Hotspot",
+      TRUE ~ "Not Hotspot"
+    ),
+    hotspot_status = factor(
+    hotspot_status,
+    levels = c("Hotspot", "Not Hotspot", "Unavailable"))
+  ) %>%
+  st_as_sf()
+
+##LOOK INTO THE NECCESITY OF THIS CODE BELOW, CAN IT BE INCLUDED IN THE FUNCTION ABOVE?
+#to ensure it works, no 0 length variables
+hotspot_long_clean <- hotspot_long %>%
+  group_by(variable) %>%
+  filter(!all(is.na(hotspot_status))) %>%
+  filter(n_distinct(hotspot_status, na.rm = TRUE) > 1) %>%
+  ungroup()
+
+```
+
+## Roads
+
+Load from local data
+
+create a major highways object
+
+```{r}
+# Step 1: Define zip path
+roads_zip <- "C:/Users/User/Desktop/local data/tl_2024_texas_prisecroads.zip"
+
+# Step 2: Extract files
+unzipped_dir <- extract_zip_with_fallback(roads_zip)
+
+# Step 3: Find and load shapefile
+#shp_file <- list.files(unzipped_dir, pattern = "\\.shp$", full.names = TRUE)[1]
+roads <- st_read(unzipped_dir)
+
+# Step 4: Filter Interstates and U.S. Highways
+major_highways <- roads %>%
+  filter(RTTYP %in% c("I", "U"))
+
+# Step 5: Reproject to EPSG:2277 (Texas Central)
+major_highways_2277 <- st_transform(major_highways, crs = 2277)
+
+```
+
+##CBSA
+From local data folder off all us cbsa, filter the geometry of austin.
+```{r}
+
+# Step 1: Define path
+cbsa_zip <- "C:/Users/User/Desktop/local data/tl_2024_us_cbsa.zip"
+
+# Step 2: Extract
+unzipped_cbsa <- extract_zip_with_fallback(cbsa_zip)
+
+# Step 3: Locate shapefile and read
+cbsa_shp <- list.files(unzipped_cbsa, pattern = "\\.shp$", full.names = TRUE)[1]
+cbsa_all <- st_read(cbsa_shp)
+
+# Step 4: Filter to Austin CBSA
+austin_cbsa <- cbsa_all %>%
+  filter(NAMELSAD == "Austin-Round Rock-San Marcos, TX Metro Area")
+
+# Step 5: Reproject to EPSG:2277
+austin_cbsa_2277 <- st_transform(austin_cbsa, crs = 2277)
+```
+##Water
+```{r}
+travis_water_2277 <- extract_zip_with_fallback("C:/Users/User/Desktop/local data/tl_2024_48453_areawater.zip") %>%
+  st_transform(crs = 2277)
+
+travis_water_2277 <- travis_water_2277 %>%
+  filter(AWATER > 1e5) 
+```
+
+
+##Site Point
+
+```{r}
+#crs already confirmed
+AS_home<-readRDS(file = here("clients", "arshad", "cache", "arshad_austin_home_site.rds"))
+
+
+```
+## Austin city boundary
+
+```{r}
+
+
+
+
+
+```
+
+
+#Final plots
+The following will be pdf outputs that take in as arguments each of the obejcts loaded above. 
+##Chloropleths
+
+Get the input df for this from the 
+
+Cut off the hotspot variables from the dataset (keep the n_hotspots)
+```{r}
+#Get these from the expsum refined tract data output PLUS
+##Include counts of POI's per tract
+
+generate_choropleth_maps(
+  geodata = final_tracts,
+  site_points = home_site,
+  water = travis_water_2277,
+  roads = major_highways_2277,
+  cbsa_boundary = austin_cbsa_2277,
+  overwrite = TRUE,          # to allow regenerating output files
+  run_leaflet = FALSE        # turn off Leaflet if it throws errors
+)
+```
+
+##Hotspots
+###custom export function for hotspots
+
+```{r}
+
+generate_faceted_hotspot_maps(
+  hotspot_data = hotspot_long_clean,       # your long-format hotspot sf object
+  site_points = home_site,                 # the green home location point
+  water = travis_water_2277,               # water body sf
+  roads = major_highways_2277,             # roads shapefile already projected
+  cbsa_boundary = austin_cbsa_2277,        # CBSA area to clip context layers
+  overwrite = TRUE                         # set TRUE to regenerate outputs
+)
+
+
+
+```
+###FUNCTION TO COMBINE THOSE MAPS SO FAR
+
+```{r}
+combine_choropleth_and_hotspot_pdfs()
+
+```
+
+
+
+##COMPOSITE SCORE MAP- ANNOTATION
+```{r}
+#We have the tmap at the end of the locmor_plots script
+
+
+```
+
+##Distance accumulation from the house
+```{r}
+
+
+```
+
+#COMPOSITE SCORE CODE
+```{r}
+
+#I MADE THE COMPOSITE OBJECT USING A PYTHON SCRIPT IN PyTOOLKIT - saved as geopackage and am loading now
+
+## 2.1  Composite layer with tier column
+comp_path <- "C:/Users/User/Documents/TOOLKIT/clients/arshad/cache/arshad_austin_acs_final_stackscore.gpkg"
+composite_sf <- st_read(comp_path, quiet = TRUE) |>
+  st_transform(2277)
+
+## 2.2  Roads (folder already unzipped)
+roads_dir <- "C:/Users/User/Desktop/local data/texas_roads"
+roads_shp <- list.files(roads_dir, pattern = "\\.shp$", full.names = TRUE)[1]
+roads     <- st_read(roads_shp, quiet = TRUE) |>
+             st_transform(2277)
+
+major_highways_2277 <- roads |>
+  filter(RTTYP %in% c("I", "U"))          # Interstates & U.S. highways
+
+## 2.3  Water (folder already unzipped)
+water_dir <- "C:/Users/User/Desktop/local data/texas_water"
+water_shp <- list.files(water_dir, pattern = "\\.shp$", full.names = TRUE)[1]
+travis_water_2277 <- st_read(water_shp, quiet = TRUE) |>
+                     st_transform(2277) |>
+                     filter(AWATER > 1e5)            # keep larger bodies
+
+## 2.4  CBSA boundaries (folder already unzipped)
+cbsa_dir <- "C:/Users/User/Desktop/local data/us_cbsa"
+cbsa_shp <- list.files(cbsa_dir, pattern = "\\.shp$", full.names = TRUE)[1]
+austin_cbsa_2277 <- st_read(cbsa_shp, quiet = TRUE) |>
+  filter(NAMELSAD == "Austin-Round Rock-San Marcos, TX Metro Area") |>
+  st_transform(2277)
+
+## 2.5  Home‑site point
+site <- readRDS("C:\\Users\\User\\Documents\\TOOLKIT\\clients\\arshad\\cache\\arshad_austin_home_site.rds") |>
+        st_transform(2277)
+
+# ------------------------------------------------------------
+# 3.  Colour palette for 5 tiers
+# ------------------------------------------------------------
+library(MetBrewer)
+
+# 1.  Get the *actual* tier values that exist in the data
+lvls <- sort(unique(composite_sf$tier))   # character vector, e.g. c("1","2","3","4","5","Other")
+
+# 2.  Build a palette that keeps Signac for main tiers, custom for Other
+n_main  <- sum(lvls != "Other")           # how many non‑Other tiers
+pal_vec <- MetBrewer::met.brewer("Signac", n_main)
+names(pal_vec) <- lvls[lvls != "Other"]   # exact match
+
+pal_vec["Other"] <- "#dfffcf"             # pastel green
+pal_vec <- pal_vec[lvls]                  # re‑order to data order
+
+# 3.  Call the function
+generate_composite_tier_map(
+  composite_sf   = composite_sf,
+  tier_col       = "tier",
+  water          = travis_water_2277,
+  roads          = major_highways_2277,
+  site_points    = site,
+  cbsa_boundary  = austin_cbsa_2277,
+  tier_palette   = pal_vec,
+  filename       = "arshad_composite_tier_map_large.pdf",
+  dpi            = 300,
+  overwrite      = TRUE
+)
+```
+```{r}
+
+
+
+
+
+```
+

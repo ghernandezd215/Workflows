@@ -1,0 +1,19 @@
+---
+title: "generate_correlationmatrix_from_df"
+author: "Saturnya"
+date: "2025-04-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Introduction
+
+The purpose of this script is to generate a correlation matrix for a df as a pdf
+
+#load dataframe
+
+#Create correlation matrix
+
+#Save correlation matrix as a pdf

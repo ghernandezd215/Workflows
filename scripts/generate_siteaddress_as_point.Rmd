@@ -1,0 +1,39 @@
+---
+title: "generate_site_as_point"
+author: "Saturnya"
+date: "2025-04-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#introduction
+
+The following code takes a list of addresses and converts them to points
+
+```{r}
+
+library(sf)
+
+# Create a data frame with coordinates
+home_coords <- data.frame(
+  lon = -97.73394,
+  lat = 30.27073
+)
+
+# Convert to sf point in WGS84
+home_site <- st_as_sf(home_coords, coords = c("lon", "lat"), crs = 4326)
+
+# Reproject to EPSG 2277 (Texas Central, ftUS)
+home_site <- st_transform(home_site, crs = 2277)
+
+#save as cache
+
+saveRDS(
+ home_site,
+  file = here("clients", "arshad", "cache", "arshad_austin_home_site.rds")
+)
+
+```
