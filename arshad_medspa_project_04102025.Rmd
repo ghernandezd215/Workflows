@@ -1,0 +1,422 @@
+---
+title: "ARSHAD REPORT"
+author: "Saturnya"
+date: "2025-04-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidycensus)
+library(dplyr)
+library(sf)
+library(here)
+
+options(tigris_use_cache = TRUE)
+options(scipen=999)
+options(tigris_class = "sf")
+options(tigris_cache_dir = "cache/tigris_cache")
+
+#crs for austin
+
+crs<-"EPSG:2277"
+
+tidycensus::census_api_key("811e1f6f8d1f299cb75a0f0c07e01aafd801fa79", overwrite = TRUE)
+
+```
+
+15 minutes-30 minutes away from home
+10 minutes outside of the highway
+At least 5 parking spaces on site
+1 story storefront typology(check with the appraiser and the property class dictionary
+Middle/high incomes
+30-50 Years old
+Singles
+$20 per sqft price -5,000 sqft needed ($10,000 annual rent price)
+Maximize distance from other medical spas
+
+
+Order: 
+
+-Building Code for Distance Accumualtion layer
+-Census call for variables of interest
+-Local Moran's Hotspots
+-reclassify accumulation layerand assign the value of a zonal analysis to tracts. Show in map tracts that are hotspots and nearest the highway
+-Overlay distance accumulation with hot spots
+-Get medical Spas put on the map
+
+04/10/2025
+
+Need to clean up all the maps with erase water and bring in the road network and the house's location
+
+
+
+##Project specific Census Call
+
+###get 2023 variables
+
+```{r}
+# === Variable Vector with Inline Descriptions ===
+all_vars <- c(
+  # === Income ===
+  "B19013_001",  # Median household income
+  "B19025_001",  # Aggregate household income
+
+  # Family income brackets for $75k+ and $125k+
+  "B19101_013",  # $75k–$99k
+  "B19101_014",  # $100k–$124k
+  "B19101_015",  # $125k–$149k
+  "B19101_016",  # $150k–$199k
+  "B19101_017",  # $200k+
+
+  # === Race / Ethnicity ===
+  "C02003_003",  # White alone
+  "C02003_004",  # Black alone
+  "C02003_006",  # Asian alone
+  "C02003_009",  # Two or more races
+  "B03003_001",  # Hispanic or Latino
+
+  # === Education ===
+  "B15003_022",  # Bachelor's degree
+  "B15003_023",  # Master's degree
+  "B15003_024",  # Professional degree
+  "B15003_025",  # Doctorate
+
+  # === Population & Age ===
+  "B01003_001",  # Total population
+  "B01002_001",  # Median age (Total)
+  "B01002_002",  # Median age (Male)
+  "B01002_003",  # Median age (Female)
+
+  # === Housing & Vacancy ===
+  "B25107_011",  # Median value homes built before 1939
+  "B25005_002",  # Vacant homes (residence elsewhere)
+
+  # === Living Alone ===
+  "B09019_005",  # Males living alone
+  "B09019_008",  # Females living alone
+
+  # === Ancestry ===
+  "B05006_143",  # Cuban ancestry
+
+  # === Male 30–54 ===
+  "B12002_008", "B12002_009", "B12002_010", "B12002_011", "B12002_012",  # Never married
+  "B12002_040", "B12002_041", "B12002_042", "B12002_043", "B12002_044",  # Separated
+  "B12002_070", "B12002_071", "B12002_072", "B12002_073", "B12002_074",  # Widowed
+  "B12002_085", "B12002_086", "B12002_087", "B12002_088", "B12002_089",  # Divorced
+
+  # === Female 30–54 ===
+  "B12002_101", "B12002_102", "B12002_103", "B12002_104", "B12002_105",  # Never married
+  "B12002_133", "B12002_134", "B12002_135", "B12002_136", "B12002_137",  # Separated
+  "B12002_163", "B12002_164", "B12002_165", "B12002_166", "B12002_167",  # Widowed
+  "B12002_178", "B12002_179", "B12002_180", "B12002_181", "B12002_182"   # Divorced
+)
+```
+
+```{r}
+
+
+
+```
+###Get and process the census tract data for Austin
+make the call and rename as neccesary. Follow this up with a mutation of calculations
+
+Ideally, use the code at the bottom to filter out unreliable variables and the nsee what we can confidently calculate.
+
+```{r}
+# === Retrieve Data ===
+tract_data <- get_acs(
+  geography = "tract",
+  variables = all_vars,
+  state = "TX",
+  county = "Travis",
+  year = 2023,
+  geometry = TRUE,
+  survey = "acs5",
+  output = "wide"
+)
+
+tract_data_final <- tract_data %>%
+  rename(
+    median_household_income = B19013_001E,
+    aggregate_household_income = B19025_001E,
+    income_75k_99k = B19101_013E,
+    income_100k_124k = B19101_014E,
+    income_125k_149k = B19101_015E,
+    income_150k_199k = B19101_016E,
+    income_200k_plus = B19101_017E,
+    white_alone = C02003_003E,
+    black_alone = C02003_004E,
+    asian_alone = C02003_006E,
+    two_or_more_races = C02003_009E,
+    hispanic_or_latino = B03003_001E,
+    bachelors_degree = B15003_022E,
+    masters_degree = B15003_023E,
+    professional_degree = B15003_024E,
+    doctorate = B15003_025E,
+    total_population = B01003_001E,
+    median_age_total = B01002_001E,
+    median_age_male = B01002_002E,
+    median_age_female = B01002_003E,
+    median_value_pre1939 = B25107_011E,
+    vacant_residence_elsewhere = B25005_002E,
+    male_living_alone = B09019_005E,
+    female_living_alone = B09019_008E,
+    cuban_ancestry = B05006_143E,
+    male_30_34_never = B12002_008E,
+    male_35_39_never = B12002_009E,
+    male_40_44_never = B12002_010E,
+    male_45_49_never = B12002_011E,
+    male_50_54_never = B12002_012E,
+    male_30_34_sep = B12002_040E,
+    male_35_39_sep = B12002_041E,
+    male_40_44_sep = B12002_042E,
+    male_45_49_sep = B12002_043E,
+    male_50_54_sep = B12002_044E,
+    male_30_34_wid = B12002_070E,
+    male_35_39_wid = B12002_071E,
+    male_40_44_wid = B12002_072E,
+    male_45_49_wid = B12002_073E,
+    male_50_54_wid = B12002_074E,
+    male_30_34_div = B12002_085E,
+    male_35_39_div = B12002_086E,
+    male_40_44_div = B12002_087E,
+    male_45_49_div = B12002_088E,
+    male_50_54_div = B12002_089E,
+    female_30_34_never = B12002_101E,
+    female_35_39_never = B12002_102E,
+    female_40_44_never = B12002_103E,
+    female_45_49_never = B12002_104E,
+    female_50_54_never = B12002_105E,
+    female_30_34_sep = B12002_133E,
+    female_35_39_sep = B12002_134E,
+    female_40_44_sep = B12002_135E,
+    female_45_49_sep = B12002_136E,
+    female_50_54_sep = B12002_137E,
+    female_30_34_wid = B12002_163E,
+    female_35_39_wid = B12002_164E,
+    female_40_44_wid = B12002_165E,
+    female_45_49_wid = B12002_166E,
+    female_50_54_wid = B12002_167E,
+    female_30_34_div = B12002_178E,
+    female_35_39_div = B12002_179E,
+    female_40_44_div = B12002_180E,
+    female_45_49_div = B12002_181E,
+    female_50_54_div = B12002_182E
+  )
+
+```
+###Add calculated variables
+
+```{r}
+
+
+# === Add Derived Metrics ===
+austin_tract_df <- tract_data_final %>%
+  mutate(
+    # Income thresholds
+    income_75k_plus = income_75k_99k + income_100k_124k + income_125k_149k + income_150k_199k + income_200k_plus,
+    income_125k_plus = income_125k_149k + income_150k_199k + income_200k_plus,
+    pct_income_75k_plus = income_75k_plus / aggregate_household_income * 100,
+    pct_income_125k_plus = income_125k_plus / aggregate_household_income * 100,
+
+    # Race/Ethnicity
+    poc_total = black_alone + two_or_more_races + hispanic_or_latino,
+    pct_white = white_alone / total_population * 100,
+    pct_asian = asian_alone / total_population * 100,
+    pct_poc = poc_total / total_population * 100,
+
+    # Education
+    bachelors_only = bachelors_degree,
+    grad_plus = rowSums(across(c(masters_degree, professional_degree, doctorate)), na.rm = TRUE),
+    pct_bachelors = bachelors_only / total_population * 100,
+    pct_gradplus = grad_plus / total_population * 100,
+
+    # Living Alone
+    living_alone_total = rowSums(across(c(male_living_alone, female_living_alone)), na.rm = TRUE),
+    pct_living_alone = living_alone_total / total_population * 100,
+
+    # Adults 30–54
+    male_30_54 = rowSums(across(c(
+      male_30_34_never, male_35_39_never, male_40_44_never, male_45_49_never, male_50_54_never,
+      male_30_34_sep, male_35_39_sep, male_40_44_sep, male_45_49_sep, male_50_54_sep,
+      male_30_34_wid, male_35_39_wid, male_40_44_wid, male_45_49_wid, male_50_54_wid,
+      male_30_34_div, male_35_39_div, male_40_44_div, male_45_49_div, male_50_54_div
+    )), na.rm = TRUE),
+    
+    female_30_54 = rowSums(across(c(
+      female_30_34_never, female_35_39_never, female_40_44_never, female_45_49_never, female_50_54_never,
+      female_30_34_sep, female_35_39_sep, female_40_44_sep, female_45_49_sep, female_50_54_sep,
+      female_30_34_wid, female_35_39_wid, female_40_44_wid, female_45_49_wid, female_50_54_wid,
+      female_30_34_div, female_35_39_div, female_40_44_div, female_45_49_div, female_50_54_div
+    )), na.rm = TRUE),
+
+    pct_male_30_54 = male_30_54 / total_population * 100,
+    pct_female_30_54 = female_30_54 / total_population * 100,
+    combined_singles= female_30_54 + male_30_54,
+    combined_percent_singles=pct_male_30_54+pct_female_30_54
+  )
+
+```
+###Cache Austin Dataset for future analysis
+Save the final tract data. This will be combined with the hotspot analysis results to generate a masterdata geodataframe.
+
+
+```{r}
+saveRDS(
+  austin_tract_df,
+  file = here("clients", "arshad", "cache", "austin_acs5_2023_tract.rds")
+)
+
+#to load later
+austin_tract_df <- readRDS(
+  here("clients", "arshad", "cache", "austin_acs5_2023_tract.rds")
+)
+
+
+```
+##Hot Spot analysis  with local morans (prep)
+
+NOw that we have the object. Let's select the variables for hot spot analysis and the geometry.
+
+We will then output this object in a separate script that to create local moran's I analysis and visualizations for variables.
+
+###create vector of variables local morans
+
+Create the vector of variables you want to select including NAME and GEOID.
+
+Use these to filter out from the place_tract_df. Save this new data frame, it is the input tho the project's local moran's I related script
+
+```{r}
+#create vector of the variables that you want to analyze, plus geometry
+
+locmor_austin_vars<- c("median_household_income", 
+                       "white_alone", 
+                       "total_population",
+                       "vacant_residence_elsewhere", 
+                       "income_125k_plus", 
+                       "pct_125k_plus", 
+                       "pct_gradplus", 
+                       "grad_plus", 
+                       "pct_living_alone", 
+                       "combined_singles", 
+                       "combined_percent_singles", 
+                       "female_30_54", 
+                       "male_30_54",
+                       "NAME",
+                       "GEOID")
+
+austintx_locmor_df_input <- austin_tract_df %>%
+  
+               select(median_household_income, white_alone, total_population, vacant_residence_elsewhere, income_125k_plus,  pct_income_125k_plus, pct_gradplus, grad_plus, pct_living_alone, combined_singles, combined_percent_singles, female_30_54, male_30_54,GEOID,NAME, geometry
+  )
+```
+
+Next, Cache the local moran's I object for analysis in another script. 
+
+```{r}
+saveRDS(
+  austintx_locmor_df_input,
+  file = here("clients", "arshad", "cache", "austin_acs5_2023_tract_locmor_input.rds")
+)
+
+
+
+```
+
+##Local Moran's Hotspots
+
+We now have a austing
+###Load from Local morans' stat script
+
+There is a script in the toolkit that generates the local moran's I hot spot information. 
+
+I used it to create a df of the statistically significant hot spots. We will join these datasets together.
+
+First, load the local morans I output df.
+
+```{r}
+locmor_austin_houtput_df<-readRDS(here("clients","arshad","cache","locmor_austin_df_houtput.rds"))
+
+```
+### combine the local morans I with the master data frame
+
+```{r}
+
+
+```
+
+###cache that for now
+
+
+##Load Austin, TX MSA Boundary
+
+```{r}
+#loaded from previous script that generates this feature
+
+austin_cbsa<-readRDS(here("clients","arshad","cache","austin_cbsa_boundary.rds"))
+
+
+```
+
+##Clean up cartography by removing water bodies with tigris functions
+###load tigris and clip the total tracts geodataframe
+
+```{r}
+#load the census tracts for the countyy
+
+# Load water bodies for Travis County
+water_travis <- area_water(state = "TX", county = "Travis", year = 2023)
+
+# Ensure both are in the same coordinate system
+water_travis <- st_transform(water_travis, crs = st_crs(tracts_travis))
+
+# Erase water from tracts using st_difference
+tracts_nowater <- st_difference(tracts_travis, st_union(water_travis))
+
+```
+
+#export 
+```{r}
+
+
+```
+
+
+
+#BONUS WORK
+
+
+Create code that cleans up bad variables
+```{r}
+# Drop geometry before processing
+tract_data_clean <- tract_data %>% st_drop_geometry()
+
+# === Remove Variables with High Relative MOE ===
+#create a named vector'rel_moe, which has names of variables and a calculated relative margin of error (percentage of all rows that have relative margins of error >50% of the estimate)
+rel_moe <- sapply(grep("E$", names(tract_data_clean), value = TRUE), function(est_col) {
+  moe_col <- sub("E$", "M", est_col)
+  if (moe_col %in% names(tract_data_clean)) {
+    rel <- tract_data_clean[[moe_col]] / tract_data_clean[[est_col]]#calculates the value of error/estimate into a new column
+    return(mean(rel > 0.5, na.rm = TRUE)) # in the new column , how many values in a variable have a high relative margin of error. 
+    
+    #this is what create the rel_moe named vecotor - variable to percent of rows with rel >.5. this is used to select remaining variables.
+
+
+  }
+  return(NA)
+})
+
+
+vars_to_remove <- names(rel_moe[rel_moe > 0.5]) #uses named vector to say, if value is over .5, remove
+moe_to_remove <- sub("E$", "M", vars_to_remove) #subtract columns of those variables
+
+# Map renamed fields if they exist
+renamed_vars <- names(tract_data_final)
+]
+
+print("Variables removed due to high relative MOE (>50%):")
+print(readable_removed)
+
+```
